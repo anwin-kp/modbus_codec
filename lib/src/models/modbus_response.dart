@@ -43,33 +43,40 @@ final class ReadRegistersResponse extends ModbusResponse {
 
 /// Decoded reply to a read of 1-bit values (FC 01 coils, FC 02 discrete inputs).
 ///
-/// [values] contains exactly [requestedQuantity] booleans, LSB-first, trimmed
-/// to the count originally requested. `values[0]` is the first coil/input
-/// requested; there are no trailing padding bits.
+/// [values] is expanded from the packed bytes — LSB first — so `values[0]` is
+/// the first coil/input requested. The Modbus response frame does not carry the
+/// original requested quantity, so [values] always has `byteCount * 8` entries
+/// (a multiple of 8). The final byte may contain zero-padding bits; slice
+/// [values] to your request quantity to discard them:
+///
+/// ```dart
+/// final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
+/// final coils = response.values.sublist(0, requestedQuantity);
+/// ```
 final class ReadBitsResponse extends ModbusResponse {
-  /// The number of coils / discrete inputs that were requested.
+  /// The number of bits packed by the device: always `byteCount * 8`.
   ///
-  /// Equals `values.length`. Carried here so callers can verify the response
-  /// matches their request without retaining the original quantity separately.
-  final int requestedQuantity;
+  /// Equals `values.length`. The last `(packedBitCount - requestedQuantity)`
+  /// entries may be zero-padding; use your original request quantity to slice.
+  final int packedBitCount;
 
-  /// The expanded boolean values, in request order.
+  /// The expanded boolean values, LSB first.
   ///
-  /// Length is always [requestedQuantity] — padding bits from the final packed
-  /// byte are stripped.
+  /// Length is always [packedBitCount] (a multiple of 8). Slice to your
+  /// request quantity to drop any trailing zero-padding bits.
   final List<bool> values;
 
   /// Creates a bit (coil / discrete input) read response.
   const ReadBitsResponse({
     required super.slaveId,
     required super.functionCode,
-    required this.requestedQuantity,
+    required this.packedBitCount,
     required this.values,
   });
 
   @override
   String toString() =>
-      'ReadBitsResponse(slaveId: $slaveId, requestedQuantity: $requestedQuantity, '
+      'ReadBitsResponse(slaveId: $slaveId, packedBitCount: $packedBitCount, '
       'values: $values)';
 }
 

@@ -27,34 +27,48 @@ void main() {
       expect(response.registers, equals([0xFFFF]));
     });
 
-    test('expands coils LSB-first into booleans and trims padding', () {
+    test('expands coils LSB-first into booleans; returns all byteCount*8 bits',
+        () {
       // byte 0x05 = 0b00000101 -> coil0 true, coil1 false, coil2 true,
-      // bits 3-7 are zero padding and should be trimmed.
+      // bits 3-7 are zero-padding. The decoder returns all 8 bits; caller slices.
       final frame = withCrc([0x01, 0x01, 0x01, 0x05]);
       final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
-      expect(response.values.take(3), equals([true, false, true]));
-      // Trailing zero padding trimmed: length should be 3, not 8.
-      expect(response.values.length, equals(3));
-      expect(response.requestedQuantity, equals(3));
+      expect(response.packedBitCount, equals(8));
+      expect(response.values.length, equals(8));
+      expect(response.values[0], isTrue);
+      expect(response.values[1], isFalse);
+      expect(response.values[2], isTrue);
+      expect(response.values.sublist(3), everyElement(isFalse)); // padding
     });
 
-    test('does not trim trailing true bits (real coil values)', () {
-      // byte 0xFF = all 8 coils ON — none are padding, length stays 8.
+    test('8 all-OFF coils return 8 false values, not 1', () {
+      // byte 0x00 = all 8 coils OFF — padding-trim bug would collapse to 1 bit.
+      final frame = withCrc([0x01, 0x01, 0x01, 0x00]);
+      final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
+      expect(response.packedBitCount, equals(8));
+      expect(response.values.length, equals(8));
+      expect(response.values, everyElement(isFalse));
+    });
+
+    test('all 8 coils ON: returns 8 true values', () {
+      // byte 0xFF = all 8 coils ON.
       final frame = withCrc([0x01, 0x01, 0x01, 0xFF]);
       final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
+      expect(response.packedBitCount, equals(8));
       expect(response.values.length, equals(8));
       expect(response.values, everyElement(isTrue));
     });
 
-    test('coil response with multiple bytes exposes all bits of non-final bytes',
-        () {
-      // 9 coils: 2 bytes. byte0 = 0xFF (coils 0-7 all ON), byte1 = 0x01 (coil 8 ON, rest padding).
+    test('multi-byte coil response returns all 16 bits (2 bytes)', () {
+      // 9 coils over 2 bytes: byte0 = 0xFF (coils 0-7 ON), byte1 = 0x01 (coil 8 ON).
+      // Decoder returns 16 bits; caller slices to 9.
       final frame = withCrc([0x01, 0x01, 0x02, 0xFF, 0x01]);
       final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
-      // First 8 all true, 9th true, trailing zeros trimmed.
-      expect(response.values.length, equals(9));
+      expect(response.packedBitCount, equals(16));
+      expect(response.values.length, equals(16));
       expect(response.values.sublist(0, 8), everyElement(isTrue));
       expect(response.values[8], isTrue);
+      expect(response.values.sublist(9), everyElement(isFalse)); // padding
     });
 
     test('decodes a write-single echo response', () {

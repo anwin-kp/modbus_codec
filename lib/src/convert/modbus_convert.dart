@@ -144,6 +144,14 @@ abstract final class ModbusConvert {
       registers.add((hi << 8) | lo);
     }
     if (padToRegisters != null) {
+      if (registers.length > padToRegisters) {
+        throw ArgumentError.value(
+          padToRegisters,
+          'padToRegisters',
+          'text encodes to ${registers.length} registers but padToRegisters '
+              'is $padToRegisters — text does not fit',
+        );
+      }
       while (registers.length < padToRegisters) {
         registers.add(0x0000);
       }

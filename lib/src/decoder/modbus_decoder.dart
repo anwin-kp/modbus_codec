@@ -65,6 +65,12 @@ abstract final class ModbusDecoder {
     // Payload sits between the 2-byte header and the 2-byte trailing CRC.
     final payload = frame.sublist(2, frame.length - 2);
 
+    // Minimum frame sizes per function (header 2 + payload + CRC 2):
+    // Read responses: 2 + 1 (byteCount) + ≥2 data + 2 = ≥7 bytes minimum.
+    // Write-single/multiple echo: 2 + 4 payload + 2 = 8 bytes exactly.
+    const writeSingleMin = 8;
+    const writeMultipleMin = 8;
+
     switch (functionCode) {
       case ModbusFunctionCode.readHoldingRegisters:
       case ModbusFunctionCode.readInputRegisters:
@@ -76,10 +82,24 @@ abstract final class ModbusDecoder {
 
       case ModbusFunctionCode.writeSingleCoil:
       case ModbusFunctionCode.writeSingleRegister:
+        if (frame.length < writeSingleMin) {
+          throw ModbusFrameException(
+            'Write-single response too short: expected at least '
+            '$writeSingleMin bytes, got ${frame.length}.',
+            frame,
+          );
+        }
         return _decodeWriteSingle(slaveId, functionCode, payload, frame);
 
       case ModbusFunctionCode.writeMultipleCoils:
       case ModbusFunctionCode.writeMultipleRegisters:
+        if (frame.length < writeMultipleMin) {
+          throw ModbusFrameException(
+            'Write-multiple response too short: expected at least '
+            '$writeMultipleMin bytes, got ${frame.length}.',
+            frame,
+          );
+        }
         return _decodeWriteMultiple(slaveId, functionCode, payload, frame);
 
       default:
@@ -160,34 +180,20 @@ abstract final class ModbusDecoder {
         frame,
       );
     }
-    // Expand all bits then trim to the exact quantity the device declared via
-    // byteCount. The final packed byte may contain up to 7 zero-padding bits
-    // that must not be exposed as real coil values.
-    // The declared coil count is inferred as byteCount * 8 minus the padding
-    // bits in the last byte. Since the spec does not encode the original
-    // quantity in the response, we return all bits the device packed — the
-    // caller who tracked the request quantity should slice values themselves.
-    // We do however strip any trailing all-zero bytes to avoid returning
-    // obviously wrong padding, and document this in ReadBitsResponse.
-    final allBits = <bool>[];
+    // Expand every packed bit LSB-first. The Modbus response frame does not
+    // carry the original request quantity, so we return all byteCount * 8 bits.
+    // The caller, who knows what they requested, should slice to that length:
+    //   final coils = response.values.sublist(0, requestedQuantity);
+    final values = <bool>[];
     for (final byte in data) {
       for (var bit = 0; bit < 8; bit++) {
-        allBits.add((byte & (1 << bit)) != 0);
+        values.add((byte & (1 << bit)) != 0);
       }
     }
-    // Trim trailing false bits that are purely from zero-padding in the last
-    // byte. The minimum returned length is byteCount * 8 - 7 (at least 1 real
-    // bit per declared byte).
-    var trimmedLength = allBits.length;
-    final minLength = (byteCount - 1) * 8 + 1;
-    while (trimmedLength > minLength && !allBits[trimmedLength - 1]) {
-      trimmedLength--;
-    }
-    final values = allBits.sublist(0, trimmedLength);
     return ReadBitsResponse(
       slaveId: slaveId,
       functionCode: functionCode,
-      requestedQuantity: trimmedLength,
+      packedBitCount: values.length, // always byteCount * 8
       values: values,
     );
   }

@@ -177,6 +177,21 @@ void main() {
       );
     });
 
+    test('throws ArgumentError when padToRegisters is smaller than encoded length',
+        () {
+      // "Hello" encodes to 3 registers but padToRegisters = 1.
+      expect(
+        () => ModbusConvert.asciiToRegisters('Hello', padToRegisters: 1),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('does not fit'),
+          ),
+        ),
+      );
+    });
+
     test('asciiFromRegisters with all non-printable bytes returns empty string',
         () {
       final regs = [0x0001, 0x001F]; // all below 0x20
