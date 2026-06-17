@@ -17,7 +17,7 @@ import '../crc/crc16_modbus.dart';
 abstract final class ModbusEncoder {
   /// Encodes FC 01 — Read Coils.
   ///
-  /// Reads [quantity] coils starting at [startAddress] from [slaveId].
+  /// Reads [quantity] coils (1–2000) starting at [startAddress] from [slaveId].
   static List<int> readCoils({
     required int slaveId,
     required int startAddress,
@@ -28,9 +28,12 @@ abstract final class ModbusEncoder {
         functionCode: ModbusFunctionCode.readCoils,
         startAddress: startAddress,
         quantity: quantity,
+        maxQuantity: 2000,
       );
 
   /// Encodes FC 02 — Read Discrete Inputs.
+  ///
+  /// Reads [quantity] discrete inputs (1–2000) starting at [startAddress].
   static List<int> readDiscreteInputs({
     required int slaveId,
     required int startAddress,
@@ -41,9 +44,12 @@ abstract final class ModbusEncoder {
         functionCode: ModbusFunctionCode.readDiscreteInputs,
         startAddress: startAddress,
         quantity: quantity,
+        maxQuantity: 2000,
       );
 
   /// Encodes FC 03 — Read Holding Registers.
+  ///
+  /// Reads [quantity] registers (1–125) starting at [startAddress].
   static List<int> readHoldingRegisters({
     required int slaveId,
     required int startAddress,
@@ -54,9 +60,12 @@ abstract final class ModbusEncoder {
         functionCode: ModbusFunctionCode.readHoldingRegisters,
         startAddress: startAddress,
         quantity: quantity,
+        maxQuantity: 125,
       );
 
   /// Encodes FC 04 — Read Input Registers.
+  ///
+  /// Reads [quantity] registers (1–125) starting at [startAddress].
   static List<int> readInputRegisters({
     required int slaveId,
     required int startAddress,
@@ -67,6 +76,7 @@ abstract final class ModbusEncoder {
         functionCode: ModbusFunctionCode.readInputRegisters,
         startAddress: startAddress,
         quantity: quantity,
+        maxQuantity: 125,
       );
 
   /// Encodes FC 05 — Write Single Coil.
@@ -77,6 +87,8 @@ abstract final class ModbusEncoder {
     required int address,
     required bool value,
   }) {
+    _checkSlaveId(slaveId);
+    _checkAddress(address);
     final coilValue =
         value ? ModbusFunctionCode.coilOn : ModbusFunctionCode.coilOff;
     return _frame([
@@ -96,7 +108,9 @@ abstract final class ModbusEncoder {
     required int address,
     required int value,
   }) {
-    _checkU16(value, 'value');
+    _checkSlaveId(slaveId);
+    _checkAddress(address);
+    _checkU16(value, 'value', index: null);
     return _frame([
       slaveId,
       ModbusFunctionCode.writeSingleRegister,
@@ -106,13 +120,25 @@ abstract final class ModbusEncoder {
   }
 
   /// Encodes FC 15 (0x0F) — Write Multiple Coils.
+  ///
+  /// [values] must contain 1–1968 entries.
   static List<int> writeMultipleCoils({
     required int slaveId,
     required int startAddress,
     required List<bool> values,
   }) {
+    _checkSlaveId(slaveId);
+    _checkAddress(startAddress);
     if (values.isEmpty) {
       throw ArgumentError.value(values, 'values', 'must not be empty');
+    }
+    if (values.length > 1968) {
+      throw ArgumentError.value(
+        values.length,
+        'values',
+        'exceeds the Modbus limit of 1968 coils per FC 15 write '
+            '(got ${values.length})',
+      );
     }
     final byteCount = (values.length + 7) ~/ 8;
     final packed = List<int>.filled(byteCount, 0);
@@ -133,20 +159,30 @@ abstract final class ModbusEncoder {
 
   /// Encodes FC 16 (0x10) — Write Multiple Holding Registers.
   ///
-  /// Each entry of [values] is a raw 16-bit value (0–65535) and is encoded
-  /// big-endian.
+  /// Each entry of [values] is a raw 16-bit value (0–65535). [values] must
+  /// contain 1–123 entries.
   static List<int> writeMultipleRegisters({
     required int slaveId,
     required int startAddress,
     required List<int> values,
   }) {
+    _checkSlaveId(slaveId);
+    _checkAddress(startAddress);
     if (values.isEmpty) {
       throw ArgumentError.value(values, 'values', 'must not be empty');
     }
+    if (values.length > 123) {
+      throw ArgumentError.value(
+        values.length,
+        'values',
+        'exceeds the Modbus limit of 123 registers per FC 16 write '
+            '(got ${values.length})',
+      );
+    }
     final data = <int>[];
-    for (final value in values) {
-      _checkU16(value, 'values');
-      data.addAll(_u16(value));
+    for (var i = 0; i < values.length; i++) {
+      _checkU16(values[i], 'values', index: i);
+      data.addAll(_u16(values[i]));
     }
     return _frame([
       slaveId,
@@ -165,9 +201,16 @@ abstract final class ModbusEncoder {
     required int functionCode,
     required int startAddress,
     required int quantity,
+    required int maxQuantity,
   }) {
-    if (quantity <= 0) {
-      throw ArgumentError.value(quantity, 'quantity', 'must be positive');
+    _checkSlaveId(slaveId);
+    _checkAddress(startAddress);
+    if (quantity <= 0 || quantity > maxQuantity) {
+      throw ArgumentError.value(
+        quantity,
+        'quantity',
+        'must be in range 1..$maxQuantity (got $quantity)',
+      );
     }
     return _frame([
       slaveId,
@@ -183,9 +226,34 @@ abstract final class ModbusEncoder {
   /// Appends the CRC and returns the complete frame.
   static List<int> _frame(List<int> pdu) => [...pdu, ...Crc16Modbus.bytes(pdu)];
 
-  static void _checkU16(int value, String name) {
+  static void _checkSlaveId(int slaveId) {
+    if (slaveId < 0 || slaveId > 247) {
+      throw ArgumentError.value(
+        slaveId,
+        'slaveId',
+        'must be in range 0..247 (got $slaveId)',
+      );
+    }
+  }
+
+  static void _checkAddress(int address) {
+    if (address < 0 || address > 0xFFFF) {
+      throw ArgumentError.value(
+        address,
+        'address',
+        'must be in range 0x0000..0xFFFF (got $address)',
+      );
+    }
+  }
+
+  static void _checkU16(int value, String name, {required int? index}) {
     if (value < 0 || value > 0xFFFF) {
-      throw ArgumentError.value(value, name, 'must be in range 0..65535');
+      final label = index != null ? '$name[$index]' : name;
+      throw ArgumentError.value(
+        value,
+        label,
+        'must be in range 0..65535 (got $value)',
+      );
     }
   }
 }

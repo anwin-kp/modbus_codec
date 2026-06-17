@@ -13,12 +13,21 @@ void main() {
       expect(ModbusConvert.toSigned16(65436), equals(-100));
       expect(ModbusConvert.toSigned16(0x8000), equals(-32768));
     });
+
+    test('masks values larger than 16 bits before interpreting', () {
+      // 0x1FFFF masked to 0xFFFF = -1
+      expect(ModbusConvert.toSigned16(0x1FFFF), equals(-1));
+    });
   });
 
   group('ModbusConvert.toSigned32', () {
     test('handles negative 32-bit values', () {
       expect(ModbusConvert.toSigned32(0xFFFFFFFF), equals(-1));
       expect(ModbusConvert.toSigned32(0x80000000), equals(-2147483648));
+    });
+
+    test('masks values larger than 32 bits before interpreting', () {
+      expect(ModbusConvert.toSigned32(0x1FFFFFFFF), equals(-1));
     });
   });
 
@@ -52,6 +61,22 @@ void main() {
         throwsRangeError,
       );
     });
+
+    test('combine32At throws for negative index', () {
+      expect(
+        () => ModbusConvert.combine32At([0x0001, 0x0002], -1),
+        throwsRangeError,
+      );
+    });
+
+    test('combine32At throws when index is the last element (no room for pair)',
+        () {
+      final regs = [0x0001, 0x0002, 0x0003];
+      expect(
+        () => ModbusConvert.combine32At(regs, 2),
+        throwsRangeError,
+      );
+    });
   });
 
   group('ModbusConvert.scale', () {
@@ -62,6 +87,14 @@ void main() {
 
     test('rejects a zero factor', () {
       expect(() => ModbusConvert.scale(1, factor: 0), throwsArgumentError);
+    });
+
+    test('rejects a negative factor', () {
+      expect(() => ModbusConvert.scale(100, factor: -10), throwsArgumentError);
+    });
+
+    test('works with a fractional factor', () {
+      expect(ModbusConvert.scale(5, factor: 0.5), closeTo(10.0, 1e-9));
     });
   });
 
@@ -89,6 +122,46 @@ void main() {
       expect(regs[0], equals(0x4869)); // "Hi"
       expect(regs.sublist(1), everyElement(equals(0x0000)));
     });
+
+    test('rejects non-ASCII characters in asciiToRegisters', () {
+      expect(
+        () => ModbusConvert.asciiToRegisters('café'),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects emoji in asciiToRegisters', () {
+      expect(
+        () => ModbusConvert.asciiToRegisters('Hi 🙂'),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects control characters (below 0x20) in asciiToRegisters', () {
+      expect(
+        () => ModbusConvert.asciiToRegisters('line\nbreak'),
+        throwsArgumentError,
+      );
+    });
+
+    test('error message includes the offending character position', () {
+      expect(
+        () => ModbusConvert.asciiToRegisters('Hi!é'),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.name,
+            'name',
+            contains('[3]'),
+          ),
+        ),
+      );
+    });
+
+    test('asciiFromRegisters with all non-printable bytes returns empty string',
+        () {
+      final regs = [0x0001, 0x001F]; // all below 0x20
+      expect(ModbusConvert.asciiFromRegisters(regs), equals(''));
+    });
   });
 
   group('ModbusConvert.bit', () {
@@ -96,6 +169,11 @@ void main() {
       expect(ModbusConvert.bit(0x05, 0), isTrue);
       expect(ModbusConvert.bit(0x05, 1), isFalse);
       expect(ModbusConvert.bit(0x05, 2), isTrue);
+    });
+
+    test('reads high bits correctly', () {
+      expect(ModbusConvert.bit(0x8000, 15), isTrue);
+      expect(ModbusConvert.bit(0x8000, 14), isFalse);
     });
   });
 }

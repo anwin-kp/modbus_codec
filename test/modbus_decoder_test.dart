@@ -70,6 +70,20 @@ void main() {
       );
     });
 
+    test('CRC error message includes expected and actual CRC bytes', () {
+      final frame = [0x01, 0x03, 0x02, 0x00, 0x01, 0x00, 0x00];
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(
+          isA<ModbusFrameException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('expected'), contains('got')),
+          ),
+        ),
+      );
+    });
+
     test('skips CRC validation when validateCrc is false', () {
       final frame = [0x01, 0x03, 0x02, 0x00, 0x01, 0x00, 0x00];
       final response = ModbusDecoder.decode(frame, validateCrc: false)
@@ -86,6 +100,21 @@ void main() {
       );
     });
 
+    test('throws on odd register byte count', () {
+      // byte count = 3 (odd) — registers are always 2 bytes each.
+      final frame = withCrc([0x01, 0x03, 0x03, 0x00, 0x01, 0x00]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(
+          isA<ModbusFrameException>().having(
+            (e) => e.message,
+            'message',
+            contains('even'),
+          ),
+        ),
+      );
+    });
+
     test('throws on an unsupported function code', () {
       final frame = withCrc([0x01, 0x63, 0x00, 0x00]);
       expect(
@@ -97,6 +126,36 @@ void main() {
     test('throws on a frame that is too short', () {
       expect(
         () => ModbusDecoder.decode([0x01, 0x03]),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test('throws ModbusFrameException (not IndexError) on empty register payload',
+        () {
+      // Valid header but no payload bytes — would previously crash with IndexError.
+      final frame = withCrc([0x01, 0x03]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test('throws ModbusFrameException (not IndexError) on empty bit payload',
+        () {
+      final frame = withCrc([0x01, 0x01]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test(
+        'throws ModbusFrameException (not IndexError) on truncated exception response',
+        () {
+      // Exception frame missing the exception code byte — only 4 bytes with CRC.
+      final frame = withCrc([0x01, 0x83]);
+      expect(
+        () => ModbusDecoder.decode(frame),
         throwsA(isA<ModbusFrameException>()),
       );
     });

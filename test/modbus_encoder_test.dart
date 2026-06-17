@@ -100,5 +100,159 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    // --- slaveId validation --------------------------------------------------
+
+    test('rejects negative slaveId', () {
+      expect(
+        () => ModbusEncoder.readHoldingRegisters(
+            slaveId: -1, startAddress: 0, quantity: 1),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects slaveId > 247', () {
+      expect(
+        () => ModbusEncoder.readHoldingRegisters(
+            slaveId: 248, startAddress: 0, quantity: 1),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts slaveId 0 (broadcast) and 247 (boundary)', () {
+      expect(
+        () => ModbusEncoder.readHoldingRegisters(
+            slaveId: 0, startAddress: 0, quantity: 1),
+        returnsNormally,
+      );
+      expect(
+        () => ModbusEncoder.readHoldingRegisters(
+            slaveId: 247, startAddress: 0, quantity: 1),
+        returnsNormally,
+      );
+    });
+
+    // --- address validation --------------------------------------------------
+
+    test('rejects negative address', () {
+      expect(
+        () => ModbusEncoder.readHoldingRegisters(
+            slaveId: 1, startAddress: -1, quantity: 1),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects address > 0xFFFF', () {
+      expect(
+        () => ModbusEncoder.writeSingleRegister(
+            slaveId: 1, address: 0x10000, value: 0),
+        throwsArgumentError,
+      );
+    });
+
+    // --- Modbus spec quantity limits -----------------------------------------
+
+    test('rejects readCoils quantity > 2000', () {
+      expect(
+        () => ModbusEncoder.readCoils(
+            slaveId: 1, startAddress: 0, quantity: 2001),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts readCoils quantity = 2000 (spec boundary)', () {
+      expect(
+        () => ModbusEncoder.readCoils(
+            slaveId: 1, startAddress: 0, quantity: 2000),
+        returnsNormally,
+      );
+    });
+
+    test('rejects readDiscreteInputs quantity > 2000', () {
+      expect(
+        () => ModbusEncoder.readDiscreteInputs(
+            slaveId: 1, startAddress: 0, quantity: 2001),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects readHoldingRegisters quantity > 125', () {
+      expect(
+        () => ModbusEncoder.readHoldingRegisters(
+            slaveId: 1, startAddress: 0, quantity: 126),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts readHoldingRegisters quantity = 125 (spec boundary)', () {
+      expect(
+        () => ModbusEncoder.readHoldingRegisters(
+            slaveId: 1, startAddress: 0, quantity: 125),
+        returnsNormally,
+      );
+    });
+
+    test('rejects readInputRegisters quantity > 125', () {
+      expect(
+        () => ModbusEncoder.readInputRegisters(
+            slaveId: 1, startAddress: 0, quantity: 126),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects writeMultipleCoils with > 1968 values', () {
+      expect(
+        () => ModbusEncoder.writeMultipleCoils(
+            slaveId: 1,
+            startAddress: 0,
+            values: List.filled(1969, true)),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts writeMultipleCoils with 1968 values (spec boundary)', () {
+      expect(
+        () => ModbusEncoder.writeMultipleCoils(
+            slaveId: 1,
+            startAddress: 0,
+            values: List.filled(1968, false)),
+        returnsNormally,
+      );
+    });
+
+    test('rejects writeMultipleRegisters with > 123 values', () {
+      expect(
+        () => ModbusEncoder.writeMultipleRegisters(
+            slaveId: 1,
+            startAddress: 0,
+            values: List.filled(124, 0)),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts writeMultipleRegisters with 123 values (spec boundary)', () {
+      expect(
+        () => ModbusEncoder.writeMultipleRegisters(
+            slaveId: 1,
+            startAddress: 0,
+            values: List.filled(123, 0)),
+        returnsNormally,
+      );
+    });
+
+    test('error message includes index for bad value in writeMultipleRegisters',
+        () {
+      expect(
+        () => ModbusEncoder.writeMultipleRegisters(
+            slaveId: 1, startAddress: 0, values: [100, 70000, 200]),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.name,
+            'name',
+            contains('[1]'),
+          ),
+        ),
+      );
+    });
   });
 }

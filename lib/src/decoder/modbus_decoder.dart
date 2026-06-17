@@ -29,7 +29,17 @@ abstract final class ModbusDecoder {
     }
 
     if (validateCrc && !Crc16Modbus.isValid(frame)) {
-      throw ModbusFrameException('CRC check failed.', frame);
+      final expected = Crc16Modbus.bytes(frame.sublist(0, frame.length - 2));
+      final got = frame.sublist(frame.length - 2);
+      throw ModbusFrameException(
+        'CRC check failed: expected '
+        '0x${expected[0].toRadixString(16).padLeft(2, '0')}'
+        '${expected[1].toRadixString(16).padLeft(2, '0')}, '
+        'got '
+        '0x${got[0].toRadixString(16).padLeft(2, '0')}'
+        '${got[1].toRadixString(16).padLeft(2, '0')}.',
+        frame,
+      );
     }
 
     final slaveId = frame[0];
@@ -37,6 +47,14 @@ abstract final class ModbusDecoder {
 
     // Exception response: function code has the high (0x80) bit set.
     if ((functionCode & ModbusFunctionCode.errorMask) != 0) {
+      if (frame.length < 5) {
+        throw ModbusFrameException(
+          'Exception response too short: expected at least 5 bytes '
+          '(slaveId + errorFn + exceptionCode + 2-byte CRC), '
+          'got ${frame.length}.',
+          frame,
+        );
+      }
       throw ModbusDeviceException(
         slaveId: slaveId,
         functionCode: functionCode & ~ModbusFunctionCode.errorMask,
@@ -81,12 +99,25 @@ abstract final class ModbusDecoder {
     List<int> frame,
   ) {
     // payload: [byteCount][data...]
+    if (payload.isEmpty) {
+      throw ModbusFrameException(
+        'Register response payload is empty: missing byte-count field.',
+        frame,
+      );
+    }
     final byteCount = payload[0];
     final data = payload.sublist(1);
-    if (data.length != byteCount || byteCount.isOdd) {
+    if (byteCount.isOdd) {
       throw ModbusFrameException(
-        'Register byte count mismatch: header says $byteCount, '
-        'got ${data.length} data bytes.',
+        'Register byte count must be even (registers are 2 bytes each), '
+        'got $byteCount.',
+        frame,
+      );
+    }
+    if (data.length != byteCount) {
+      throw ModbusFrameException(
+        'Register byte count mismatch: header says $byteCount bytes, '
+        'got ${data.length}.',
         frame,
       );
     }
@@ -108,6 +139,12 @@ abstract final class ModbusDecoder {
     List<int> frame,
   ) {
     // payload: [byteCount][packed bits...]
+    if (payload.isEmpty) {
+      throw ModbusFrameException(
+        'Bit response payload is empty: missing byte-count field.',
+        frame,
+      );
+    }
     final byteCount = payload[0];
     final data = payload.sublist(1);
     if (data.length != byteCount) {

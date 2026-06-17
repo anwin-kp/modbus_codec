@@ -73,9 +73,14 @@ abstract final class ModbusConvert {
   ///
   /// Many devices store engineering values as integers — e.g. pH 6.70 stored
   /// as `670` with a [factor] of `100`. Pass the same factor the device uses.
+  /// [factor] must be a positive number.
   static double scale(int raw, {required num factor}) {
-    if (factor == 0) {
-      throw ArgumentError.value(factor, 'factor', 'must not be zero');
+    if (factor <= 0) {
+      throw ArgumentError.value(
+        factor,
+        'factor',
+        'must be a positive number (got $factor)',
+      );
     }
     return raw / factor;
   }
@@ -106,15 +111,28 @@ abstract final class ModbusConvert {
   /// Encodes [text] into packed-ASCII registers (two chars per register, high
   /// byte first) suitable for a write request.
   ///
+  /// All characters in [text] must be printable ASCII (code points 0x20–0x7E).
+  /// Throws [ArgumentError] if any character falls outside that range.
+  ///
   /// When [text] has an odd length the final register's low byte is `0x00`
   /// padding. Pass [padToRegisters] to NUL-pad the result up to a fixed number
   /// of registers (useful for fixed-width string fields).
   static List<int> asciiToRegisters(String text, {int? padToRegisters}) {
     final codes = text.codeUnits;
+    for (var i = 0; i < codes.length; i++) {
+      if (codes[i] < 0x20 || codes[i] > 0x7E) {
+        throw ArgumentError.value(
+          text[i],
+          'text[$i]',
+          'character must be printable ASCII (0x20..0x7E), '
+              'got code point 0x${codes[i].toRadixString(16)}',
+        );
+      }
+    }
     final registers = <int>[];
     for (var i = 0; i < codes.length; i += 2) {
-      final hi = codes[i] & 0xFF;
-      final lo = (i + 1 < codes.length) ? codes[i + 1] & 0xFF : 0x00;
+      final hi = codes[i];
+      final lo = (i + 1 < codes.length) ? codes[i + 1] : 0x00;
       registers.add((hi << 8) | lo);
     }
     if (padToRegisters != null) {

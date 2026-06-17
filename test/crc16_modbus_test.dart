@@ -30,6 +30,26 @@ void main() {
 
     test('rejects frames shorter than 3 bytes', () {
       expect(Crc16Modbus.isValid([0x01, 0x02]), isFalse);
+      expect(Crc16Modbus.isValid([0x01]), isFalse);
+      expect(Crc16Modbus.isValid([]), isFalse);
+    });
+
+    test('computes CRC of empty data without error', () {
+      // CRC-16/MODBUS of empty input is 0xFFFF (initial value, no bytes processed).
+      expect(Crc16Modbus.compute([]), equals(0xFFFF));
+    });
+
+    test('computes CRC of a single byte', () {
+      // Verify single-byte CRC is deterministic and non-zero.
+      final crc = Crc16Modbus.compute([0x01]);
+      expect(crc, isNonZero);
+      expect(crc, equals(Crc16Modbus.compute([0x01])));
+    });
+
+    test('a frame built with bytes() passes isValid', () {
+      final payload = [0x01, 0x03, 0x00, 0x00, 0x00, 0x0A];
+      final frame = [...payload, ...Crc16Modbus.bytes(payload)];
+      expect(Crc16Modbus.isValid(frame), isTrue);
     });
   });
 }
