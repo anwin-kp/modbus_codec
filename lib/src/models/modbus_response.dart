@@ -1,3 +1,5 @@
+import '../constants/function_codes.dart';
+
 /// Base type for every decoded Modbus response.
 ///
 /// A [ModbusResponse] is the clean, structured result of decoding raw bytes
@@ -54,25 +56,24 @@ final class ReadRegistersResponse extends ModbusResponse {
 /// final coils = response.values.sublist(0, requestedQuantity);
 /// ```
 final class ReadBitsResponse extends ModbusResponse {
-  /// The number of bits packed by the device: always `byteCount * 8`.
-  ///
-  /// Equals `values.length`. The last `(packedBitCount - requestedQuantity)`
-  /// entries may be zero-padding; use your original request quantity to slice.
-  final int packedBitCount;
-
   /// The expanded boolean values, LSB first.
   ///
-  /// Length is always [packedBitCount] (a multiple of 8). Slice to your
-  /// request quantity to drop any trailing zero-padding bits.
+  /// Length is always a multiple of 8 (`byteCount * 8`). The last
+  /// `(values.length - requestedQuantity)` entries may be zero-padding; slice
+  /// to your original request quantity to drop them.
   final List<bool> values;
 
   /// Creates a bit (coil / discrete input) read response.
   const ReadBitsResponse({
     required super.slaveId,
     required super.functionCode,
-    required this.packedBitCount,
     required this.values,
   });
+
+  /// The number of bits the device packed: always `byteCount * 8`.
+  ///
+  /// This is simply [values].length, exposed under a Modbus-friendly name.
+  int get packedBitCount => values.length;
 
   @override
   String toString() =>
@@ -101,7 +102,12 @@ final class WriteSingleResponse extends ModbusResponse {
   });
 
   /// Interprets [value] as a coil state (`true` when `0xFF00`).
-  bool get coilState => value == 0xFF00;
+  ///
+  /// Only meaningful for an FC 05 (write single coil) echo. For an FC 06
+  /// register write, [value] is the raw register value, and a register that
+  /// happens to hold `0xFF00` would read as `true` here — check
+  /// [functionCode] first if the response could be either.
+  bool get coilState => value == ModbusFunctionCode.coilOn;
 
   @override
   String toString() => 'WriteSingleResponse(slaveId: $slaveId, '

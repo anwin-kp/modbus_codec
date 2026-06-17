@@ -92,7 +92,14 @@ abstract final class ModbusConvert {
         'must be a finite positive number (got $factor)',
       );
     }
-    return raw / factor;
+    final result = raw / factor;
+    if (result.isInfinite) {
+      throw ArgumentError(
+        'raw / factor overflows to infinity: raw=$raw, factor=$factor. '
+        'The raw value is too large for this factor.',
+      );
+    }
+    return result;
   }
 
   /// Decodes packed ASCII text from [registers], where each register holds two
@@ -168,6 +175,22 @@ abstract final class ModbusConvert {
     return registers;
   }
 
-  /// Returns the value of a single bit at [position] (0 = LSB) within [value].
-  static bool bit(int value, int position) => (value & (1 << position)) != 0;
+  /// Returns whether the bit at [position] (0 = LSB) is set in [value].
+  ///
+  /// [position] must be in the range 0..31. The upper bound is 31 rather than
+  /// 63 because JavaScript (dart2js / Flutter Web) implements bitwise operators
+  /// with 32-bit signed semantics — `1 << position` for position >= 32 always
+  /// produces 0 on the JS target, silently returning the wrong answer.
+  /// Modbus registers are 16-bit, so 0..15 covers all register bits; 0..31
+  /// covers 32-bit combined values from [combine32].
+  static bool bit(int value, int position) {
+    if (position < 0 || position > 31) {
+      throw ArgumentError.value(
+        position,
+        'position',
+        'must be in range 0..31 (got $position)',
+      );
+    }
+    return (value & (1 << position)) != 0;
+  }
 }

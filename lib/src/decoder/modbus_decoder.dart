@@ -47,14 +47,6 @@ abstract final class ModbusDecoder {
 
     // Exception response: function code has the high (0x80) bit set.
     if ((functionCode & ModbusFunctionCode.errorMask) != 0) {
-      if (frame.length < 5) {
-        throw ModbusFrameException(
-          'Exception response too short: expected at least 5 bytes '
-          '(slaveId + errorFn + exceptionCode + 2-byte CRC), '
-          'got ${frame.length}.',
-          frame,
-        );
-      }
       throw ModbusDeviceException(
         slaveId: slaveId,
         functionCode: functionCode & ~ModbusFunctionCode.errorMask,
@@ -132,6 +124,14 @@ abstract final class ModbusDecoder {
         frame,
       );
     }
+    // Spec max: 125 registers × 2 bytes = 250.
+    if (byteCount > 250) {
+      throw ModbusFrameException(
+        'Register byte count exceeds spec maximum of 250 (125 registers × 2), '
+        'got $byteCount.',
+        frame,
+      );
+    }
     final data = payload.sublist(1);
     if (byteCount.isOdd) {
       throw ModbusFrameException(
@@ -178,6 +178,14 @@ abstract final class ModbusDecoder {
         frame,
       );
     }
+    // Spec max: ceil(2000 / 8) = 250 bytes.
+    if (byteCount > 250) {
+      throw ModbusFrameException(
+        'Bit response byte count exceeds spec maximum of 250 '
+        '(2000 coils / 8), got $byteCount.',
+        frame,
+      );
+    }
     final data = payload.sublist(1);
     if (data.length != byteCount) {
       throw ModbusFrameException(
@@ -199,8 +207,7 @@ abstract final class ModbusDecoder {
     return ReadBitsResponse(
       slaveId: slaveId,
       functionCode: functionCode,
-      packedBitCount: values.length, // always byteCount * 8
-      values: values,
+      values: values, // length is always byteCount * 8
     );
   }
 
@@ -258,6 +265,14 @@ abstract final class ModbusDecoder {
       throw ModbusFrameException(
         'Write-multiple echo quantity out of range: must be 1..$maxQty, '
         'got $quantity.',
+        frame,
+      );
+    }
+    if (startAddress + quantity - 1 > 0xFFFF) {
+      throw ModbusFrameException(
+        'Write-multiple echo address range overflows: '
+        'startAddress ($startAddress) + quantity ($quantity) - 1 = '
+        '${startAddress + quantity - 1}, exceeds 0xFFFF.',
         frame,
       );
     }

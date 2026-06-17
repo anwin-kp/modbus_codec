@@ -64,6 +64,9 @@ abstract final class ModbusExceptionCode {
   /// 0x06 — The device is busy processing a long-duration command.
   static const int serverDeviceBusy = 0x06;
 
+  /// 0x07 — The device cannot perform the requested program function (NACK).
+  static const int negativeAcknowledge = 0x07;
+
   /// 0x08 — A memory parity error was detected.
   static const int memoryParityError = 0x08;
 
@@ -88,6 +91,8 @@ abstract final class ModbusExceptionCode {
         return 'Acknowledge: request accepted, processing will take time.';
       case serverDeviceBusy:
         return 'Server device busy: the device is processing another command.';
+      case negativeAcknowledge:
+        return 'Negative acknowledge: the device cannot perform the requested program function.';
       case memoryParityError:
         return 'Memory parity error.';
       case gatewayPathUnavailable:

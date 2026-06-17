@@ -16,7 +16,8 @@ class ModbusFrameException implements Exception {
   const ModbusFrameException(this.message, [this.frame]);
 
   @override
-  String toString() => 'ModbusFrameException: $message';
+  String toString() => 'ModbusFrameException: $message'
+      '${frame != null ? ' frame: $frame' : ''}';
 }
 
 /// Thrown when the device returns a Modbus exception (error) response.

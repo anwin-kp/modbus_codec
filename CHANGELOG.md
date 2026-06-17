@@ -1,6 +1,12 @@
 ## 0.1.3
 
-- Fix README install snippet to reference `^0.1.2` (was pinned to old version).
+- Decoder rejects oversized read responses (`byteCount > 250`) instead of accepting out-of-spec data.
+- Decoder validates the address range on write-multiple echoes (`startAddress + quantity - 1 <= 0xFFFF`).
+- `ModbusConvert.bit` restricted to position `0..31` — positions ≥ 32 are silently wrong on Flutter Web (dart2js).
+- `ModbusConvert.scale` throws on factors that overflow the result to infinity.
+- Added Modbus exception code `0x07` (negative acknowledge) to `ModbusExceptionCode`.
+- `ModbusFrameException.toString()` now includes the raw frame bytes for easier debugging.
+- `ReadBitsResponse.packedBitCount` is now a derived getter (always equals `values.length`).
 
 ## 0.1.2
 

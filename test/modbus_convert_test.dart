@@ -249,5 +249,32 @@ void main() {
       expect(ModbusConvert.bit(0x8000, 15), isTrue);
       expect(ModbusConvert.bit(0x8000, 14), isFalse);
     });
+
+    test('rejects position < 0', () {
+      expect(() => ModbusConvert.bit(0xFF, -1), throwsArgumentError);
+    });
+
+    test('rejects position > 31', () {
+      expect(() => ModbusConvert.bit(0xFF, 32), throwsArgumentError);
+    });
+
+    test('accepts position 31 (boundary)', () {
+      expect(ModbusConvert.bit(0x80000000, 31), isTrue);
+      expect(ModbusConvert.bit(0x7FFFFFFF, 31), isFalse);
+    });
+  });
+
+  group('ModbusConvert.scale overflow', () {
+    test('rejects factor so small that result overflows to infinity', () {
+      // 9223372036854775807 / 1e-300 = infinity
+      expect(
+        () => ModbusConvert.scale(9223372036854775807, factor: 1e-300),
+        throwsArgumentError,
+      );
+    });
+
+    test('normal large raw value with reasonable factor does not throw', () {
+      expect(ModbusConvert.scale(65535, factor: 1), equals(65535.0));
+    });
   });
 }

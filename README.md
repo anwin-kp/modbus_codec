@@ -131,7 +131,7 @@ final temp = ModbusConvert.scale(regs[0], factor: 10);   // → 24.5
 final offset = ModbusConvert.toSigned16(regs[1]);         // → –5
 
 // 32-bit value spread across two consecutive registers.
-final totalFlow = ModbusConvert.combine32At(regs, 4);     // regs[4] + regs[5]
+final totalFlow = ModbusConvert.combine32At(regs, 4);     // regs[4]<<16 | regs[5]
 
 // Device name stored as text.
 final name = ModbusConvert.asciiFromRegisters(regs.sublist(10, 18)); // → "Pump1"
@@ -188,7 +188,7 @@ It returns one of:
 | `combine32At(regs, index)` | Two registers → one 32-bit number |
 | `asciiFromRegisters(regs)` | Registers → text string |
 | `asciiToRegisters(text)` | Text string → registers |
-| `bit(value, position)` | Read a single bit flag from a register |
+| `bit(value, position)` | Read a single bit flag (position 0–31) from a register |
 
 ---
 

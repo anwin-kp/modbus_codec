@@ -194,6 +194,34 @@ void main() {
       );
     });
 
+    // --- byteCount upper-bound (spec max 250) --------------------------------
+
+    test('throws ModbusFrameException when register byteCount exceeds 250', () {
+      // byteCount=252 claims 126 registers — over spec max of 125.
+      final frame = withCrc([0x01, 0x03, 0xFC, ...List.filled(252, 0x00)]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test('throws ModbusFrameException when bit byteCount exceeds 250', () {
+      // byteCount=251 claims 2008 bits — over spec max of 2000.
+      final frame = withCrc([0x01, 0x01, 0xFB, ...List.filled(251, 0x00)]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test('accepts register byteCount = 250 (spec boundary — 125 registers)', () {
+      final frame = withCrc([0x01, 0x03, 0xFA, ...List.filled(250, 0x00)]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        returnsNormally,
+      );
+    });
+
     // --- bit response: byteCount = 0 -----------------------------------------
 
     test('throws ModbusFrameException when bit response byteCount is 0', () {
@@ -270,6 +298,30 @@ void main() {
         () {
       // FC 15 echo with quantity = 2000 (> 1968 max for coils).
       final frame = withCrc([0x01, 0x0F, 0x00, 0x00, 0x07, 0xD0]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test(
+        'throws ModbusFrameException when FC 16 echo address + quantity overflows 0xFFFF',
+        () {
+      // startAddress=0xFF00, quantity=123 → last = 0xFF00+122=0xFF7A (ok)
+      // startAddress=0xFF00, quantity=124 → blocked by >123 guard first
+      // startAddress=0xFFFF, quantity=2 → last = 0x10000, overflows
+      final frame = withCrc([0x01, 0x10, 0xFF, 0xFF, 0x00, 0x02]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test(
+        'throws ModbusFrameException when FC 15 echo address + quantity overflows 0xFFFF',
+        () {
+      // startAddress=0xFF00, quantity=257 → last = 0xFF00+256=0x10000, overflows
+      final frame = withCrc([0x01, 0x0F, 0xFF, 0x00, 0x01, 0x01]);
       expect(
         () => ModbusDecoder.decode(frame),
         throwsA(isA<ModbusFrameException>()),
