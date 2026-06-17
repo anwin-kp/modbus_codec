@@ -8,7 +8,7 @@ Zero dependencies, pure Dart.
 
 ```yaml
 dependencies:
-  modbus_codec: ^0.1.1
+  modbus_codec: ^0.1.2
 ```
 
 ## The idea in one picture
