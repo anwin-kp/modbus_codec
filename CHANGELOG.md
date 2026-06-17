@@ -1,3 +1,7 @@
+## 0.1.3
+
+- Fix README install snippet to reference `^0.1.2` (was pinned to old version).
+
 ## 0.1.2
 
 - Rewrote README and library doc for BLE/mobile audience — send/receive examples, plain-language tables, no protocol jargon.
