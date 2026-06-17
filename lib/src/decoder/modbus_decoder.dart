@@ -21,9 +21,9 @@ abstract final class ModbusDecoder {
   ///  * [ModbusDeviceException] if the device returned an exception response.
   ///  * [ModbusFrameException] if the frame is malformed or fails CRC.
   static ModbusResponse decode(List<int> frame, {bool validateCrc = true}) {
-    if (frame.length < 4) {
+    if (frame.length < 5) {
       throw ModbusFrameException(
-        'Frame too short: expected at least 4 bytes, got ${frame.length}.',
+        'Frame too short: expected at least 5 bytes, got ${frame.length}.',
         frame,
       );
     }
@@ -126,6 +126,12 @@ abstract final class ModbusDecoder {
       );
     }
     final byteCount = payload[0];
+    if (byteCount == 0) {
+      throw ModbusFrameException(
+        'Register byte count must be at least 2, got 0.',
+        frame,
+      );
+    }
     final data = payload.sublist(1);
     if (byteCount.isOdd) {
       throw ModbusFrameException(

@@ -1,133 +1,196 @@
 # modbus_codec
 
-A pure Dart library for **encoding and decoding Modbus RTU frames**. It is a
-transport-agnostic translation layer that sits between your application and the
-raw bytes of a Modbus device — use it over **BLE, serial, or TCP**, anywhere you
-can send and receive `List<int>`.
-
-- 🔄 **Two directions** — encode high-level intent into request frames; decode
-  raw response bytes into clean, typed values.
-- 🧱 **Zero dependencies** — no Flutter, no native code, pure Dart.
-- ✅ **CRC-16/MODBUS** built in (generate + validate).
-- 🧰 **Conversion helpers** for signed integers, 32-bit register pairs,
-  fixed-point scaling, and packed ASCII.
-- 🚫 **Unopinionated** — it never assumes what a register *means*; your device's
-  register map stays in your code.
-
-## Why "codec", not a device driver?
-
-Modbus is an application-layer protocol; it has nothing to do with the
-transport. A water-quality controller might speak Modbus over BLE, while a PLC
-speaks the same Modbus over RS-485 or TCP. This package handles only the part
-that is identical everywhere — the **frame format** — and leaves the transport
-and the register meanings to you.
-
-```
-your intent ──> ModbusEncoder ──> bytes ──> [ your transport ] ──> device
-device ──> [ your transport ] ──> bytes ──> ModbusDecoder ──> typed data
-```
+Talk to Modbus devices over BLE (or serial / TCP) from Flutter/Dart.  
+Build the bytes to send → get clean values back from the bytes you receive.  
+Zero dependencies, pure Dart.
 
 ## Install
 
 ```yaml
 dependencies:
-  modbus_codec: ^0.1.0
+  modbus_codec: ^0.1.1
 ```
 
-## Receive path — bytes in, usable data out
+## The idea in one picture
+
+```
+your app  ──►  ModbusEncoder  ──►  bytes  ──►  BLE write  ──►  device
+your app  ◄──  ModbusDecoder  ◄──  bytes  ◄──  BLE notify ◄──  device
+```
+
+You never touch raw bytes yourself — the encoder builds them, the decoder
+reads them.
+
+---
+
+## Send a request
 
 ```dart
 import 'package:modbus_codec/modbus_codec.dart';
 
-// `rawBytes` came from your transport (e.g. a BLE characteristic notification).
-final response = ModbusDecoder.decode(rawBytes);
+// Read 10 registers starting at address 0, from device #1.
+final bytes = ModbusEncoder.readHoldingRegisters(
+  slaveId: 1,
+  startAddress: 0,
+  quantity: 10,
+);
+
+await bleCharacteristic.write(bytes);
+```
+
+That's it. `bytes` is a `List<int>` ready to write straight to a BLE
+characteristic.
+
+---
+
+## Read the response
+
+```dart
+// `received` is the List<int> from your BLE notification callback.
+final response = ModbusDecoder.decode(received);
 
 if (response is ReadRegistersResponse) {
-  final regs = response.registers;            // raw List<int> of uint16 values
+  final regs = response.registers; // plain list of numbers
 
-  // Apply YOUR device's register map:
-  final ph        = ModbusConvert.scale(regs[14], factor: 100);   // 670 -> 6.70
-  final offset    = ModbusConvert.toSigned16(regs[41]);           // signed
-  final timestamp = ModbusConvert.combine32At(regs, 48);          // 32-bit pair
-  final serial    = ModbusConvert.asciiFromRegisters(regs.sublist(50, 58));
+  final temperature = ModbusConvert.scale(regs[0], factor: 10); // 245 → 24.5
+  final isRunning   = regs[1] == 1;
+  final errorCode   = ModbusConvert.toSigned16(regs[2]);         // can be negative
 }
 ```
 
-## Send path — intent in, bytes out
+---
+
+## Write a value
 
 ```dart
-// Read 55 holding registers starting at address 0.
-final read = ModbusEncoder.readHoldingRegisters(
-  slaveId: 1, startAddress: 0, quantity: 55,
-);
-
-// Write pH setpoint 6.70 -> stored as 670 in register 40.
-final write = ModbusEncoder.writeSingleRegister(
-  slaveId: 1, address: 40, value: (6.70 * 100).round(),
-);
-
-// Write a name to a fixed-width string field.
-final name = ModbusEncoder.writeMultipleRegisters(
+// Turn a pump ON (coil at address 5).
+final onCmd = ModbusEncoder.writeSingleCoil(
   slaveId: 1,
-  startAddress: 1100,
-  values: ModbusConvert.asciiToRegisters('MyPool', padToRegisters: 16),
+  address: 5,
+  value: true,
 );
+await bleCharacteristic.write(onCmd);
 
-await transport.send(read); // your BLE / serial / TCP write
+// Set a setpoint — device stores pH 6.70 as the integer 670.
+final setCmd = ModbusEncoder.writeSingleRegister(
+  slaveId: 1,
+  address: 40,
+  value: 670,
+);
+await bleCharacteristic.write(setCmd);
 ```
 
-## Errors
+---
 
-`ModbusDecoder.decode` throws:
-
-| Exception | Meaning |
-| --- | --- |
-| `ModbusDeviceException` | The device returned an exception response (e.g. illegal address). Inspect `.exceptionCode` / `.description`. |
-| `ModbusFrameException` | The bytes are malformed or failed the CRC check. |
+## Handle errors
 
 ```dart
 try {
-  final response = ModbusDecoder.decode(rawBytes);
+  final response = ModbusDecoder.decode(received);
+  // use response...
 } on ModbusDeviceException catch (e) {
-  print('Device rejected: ${e.description}');
+  // The device understood the request but rejected it (e.g. bad address).
+  print('Device error: ${e.description}');
 } on ModbusFrameException catch (e) {
-  print('Bad frame: ${e.message}');
+  // The bytes were garbled or corrupted.
+  print('Bad data: ${e.message}');
 }
 ```
 
-## Supported function codes
+---
 
-| FC | Operation | Encoder | Decoder result |
-| --- | --- | --- | --- |
-| 01 | Read Coils | `readCoils` | `ReadBitsResponse` |
-| 02 | Read Discrete Inputs | `readDiscreteInputs` | `ReadBitsResponse` |
-| 03 | Read Holding Registers | `readHoldingRegisters` | `ReadRegistersResponse` |
-| 04 | Read Input Registers | `readInputRegisters` | `ReadRegistersResponse` |
-| 05 | Write Single Coil | `writeSingleCoil` | `WriteSingleResponse` |
-| 06 | Write Single Register | `writeSingleRegister` | `WriteSingleResponse` |
-| 15 | Write Multiple Coils | `writeMultipleCoils` | `WriteMultipleResponse` |
-| 16 | Write Multiple Registers | `writeMultipleRegisters` | `WriteMultipleResponse` |
+## Read coils (on/off bits)
 
-## Conversion helpers (`ModbusConvert`)
+```dart
+final bytes = ModbusEncoder.readCoils(
+  slaveId: 1,
+  startAddress: 0,
+  quantity: 8,
+);
+await bleCharacteristic.write(bytes);
 
-| Helper | Purpose |
-| --- | --- |
-| `toSigned16` / `toSigned32` | Two's-complement interpretation |
-| `combine32` / `combine32At` | Merge two registers into a 32-bit value (word order selectable) |
-| `scale` | Fixed-point division (e.g. `670 / 100 = 6.70`) |
-| `asciiFromRegisters` / `asciiToRegisters` | Packed-ASCII decode / encode |
-| `bit` | Read a single bit from a value |
+// ... in your notification handler:
+final response = ModbusDecoder.decode(received) as ReadBitsResponse;
+// Slice to however many you requested — response may contain padding bits.
+final coils = response.values.sublist(0, 8);
+// coils[0] = first coil, coils[1] = second coil, etc.
+```
 
-## A note on CRC and Modbus TCP
+---
 
-The trailing CRC is for **Modbus RTU**. If you carry RTU frames over a transport
-that already guarantees integrity (or you are handling Modbus TCP payloads),
-pass `validateCrc: false` to `ModbusDecoder.decode`.
+## Convert register values
 
-## Example
+Most Modbus devices store numbers in simple integer formats. `ModbusConvert`
+helps you turn them into real values:
 
-See [`example/modbus_codec_example.dart`](example/modbus_codec_example.dart) for
-a full encode → decode → convert walkthrough.
+```dart
+// Device sends 245, means 24.5 °C (divided by 10).
+final temp = ModbusConvert.scale(regs[0], factor: 10);   // → 24.5
+
+// Negative values (e.g. –5 stored as 65531).
+final offset = ModbusConvert.toSigned16(regs[1]);         // → –5
+
+// 32-bit value spread across two consecutive registers.
+final totalFlow = ModbusConvert.combine32At(regs, 4);     // regs[4] + regs[5]
+
+// Device name stored as text.
+final name = ModbusConvert.asciiFromRegisters(regs.sublist(10, 18)); // → "Pump1"
+```
+
+---
+
+## Write text to a device
+
+```dart
+final bytes = ModbusEncoder.writeMultipleRegisters(
+  slaveId: 1,
+  startAddress: 100,
+  values: ModbusConvert.asciiToRegisters('MyPool', padToRegisters: 8),
+);
+await bleCharacteristic.write(bytes);
+```
+
+---
+
+## What's available
+
+### Encoder (build bytes to send)
+
+| Method | What it does |
+|---|---|
+| `readHoldingRegisters` | Read sensor/config values |
+| `readInputRegisters` | Read read-only sensor values |
+| `readCoils` | Read on/off outputs |
+| `readDiscreteInputs` | Read read-only on/off inputs |
+| `writeSingleRegister` | Write one value |
+| `writeSingleCoil` | Turn one output on/off |
+| `writeMultipleRegisters` | Write several values at once |
+| `writeMultipleCoils` | Set several outputs at once |
+
+### Decoder (read bytes received)
+
+Pass the raw `List<int>` from your BLE notification to `ModbusDecoder.decode`.
+It returns one of:
+
+| Type | When you get it |
+|---|---|
+| `ReadRegistersResponse` | Response to any register read |
+| `ReadBitsResponse` | Response to a coil/discrete read |
+| `WriteSingleResponse` | Echo after a single write |
+| `WriteMultipleResponse` | Echo after a multiple write |
+
+### Convert helpers
+
+| Helper | Use case |
+|---|---|
+| `scale(value, factor: 10)` | Fixed-point → decimal (e.g. 245 → 24.5) |
+| `toSigned16(value)` | Unsigned int → signed (handles negative values) |
+| `combine32At(regs, index)` | Two registers → one 32-bit number |
+| `asciiFromRegisters(regs)` | Registers → text string |
+| `asciiToRegisters(text)` | Text string → registers |
+| `bit(value, position)` | Read a single bit flag from a register |
+
+---
 
 ## License
 

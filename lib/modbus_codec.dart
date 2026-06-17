@@ -1,29 +1,22 @@
-/// A pure Dart library for encoding and decoding Modbus RTU frames.
+/// Modbus RTU codec for BLE and mobile apps.
 ///
-/// `modbus_codec` is a transport-agnostic translation layer that sits between
-/// your application and the raw bytes of a Modbus device. It works equally
-/// over BLE, serial, or TCP — anywhere you can send and receive `List<int>`.
+/// Build bytes to send to a device, and turn bytes received back into values.
 ///
-/// **Receive path** — bytes in, clean data out:
+/// **Send:**
 /// ```dart
-/// final response = ModbusDecoder.decode(rawBytesFromDevice);
+/// final bytes = ModbusEncoder.readHoldingRegisters(
+///   slaveId: 1, startAddress: 0, quantity: 10,
+/// );
+/// await bleCharacteristic.write(bytes);
+/// ```
+///
+/// **Receive:**
+/// ```dart
+/// final response = ModbusDecoder.decode(receivedBytes);
 /// if (response is ReadRegistersResponse) {
-///   final ph = ModbusConvert.scale(response.registers[14], factor: 100);
+///   final temp = ModbusConvert.scale(response.registers[0], factor: 10);
 /// }
 /// ```
-///
-/// **Send path** — intent in, bytes out:
-/// ```dart
-/// final frame = ModbusEncoder.writeSingleRegister(
-///   slaveId: 1, address: 40, value: 567,
-/// );
-/// await transport.send(frame); // e.g. BLE characteristic write
-/// ```
-///
-/// The library never assumes what a register *means*. It returns raw 16-bit
-/// values and expanded booleans; you apply signing, 32-bit combination,
-/// scaling and ASCII decoding via [ModbusConvert], driven by your own
-/// device's register map.
 library;
 
 export 'src/constants/function_codes.dart';

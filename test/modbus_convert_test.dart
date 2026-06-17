@@ -50,6 +50,19 @@ void main() {
       );
     });
 
+    test('combine32 with high word bit-15 set produces correct unsigned result',
+        () {
+      // 0x8000_0001 — high word has bit 15 set; << 16 would overflow on JS.
+      expect(
+        ModbusConvert.combine32(high: 0x8000, low: 0x0001),
+        equals(0x80000001),
+      );
+      expect(
+        ModbusConvert.combine32(high: 0xFFFF, low: 0xFFFF),
+        equals(0xFFFFFFFF),
+      );
+    });
+
     test('combine32At reads a pair from a register list', () {
       final regs = [0x0000, 0x1234, 0x5678];
       expect(ModbusConvert.combine32At(regs, 1), equals(0x12345678));
@@ -111,6 +124,20 @@ void main() {
 
     test('rejects a negative factor', () {
       expect(() => ModbusConvert.scale(100, factor: -10), throwsArgumentError);
+    });
+
+    test('rejects double.infinity as factor', () {
+      expect(
+        () => ModbusConvert.scale(100, factor: double.infinity),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects double.nan as factor', () {
+      expect(
+        () => ModbusConvert.scale(100, factor: double.nan),
+        throwsArgumentError,
+      );
     });
 
     test('works with a fractional factor', () {
@@ -179,7 +206,6 @@ void main() {
 
     test('throws ArgumentError when padToRegisters is smaller than encoded length',
         () {
-      // "Hello" encodes to 3 registers but padToRegisters = 1.
       expect(
         () => ModbusConvert.asciiToRegisters('Hello', padToRegisters: 1),
         throwsA(
@@ -187,6 +213,19 @@ void main() {
             (e) => e.message,
             'message',
             contains('does not fit'),
+          ),
+        ),
+      );
+    });
+
+    test('throws ArgumentError when padToRegisters is negative', () {
+      expect(
+        () => ModbusConvert.asciiToRegisters('Hi', padToRegisters: -1),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('non-negative'),
           ),
         ),
       );

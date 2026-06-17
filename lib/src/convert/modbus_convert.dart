@@ -47,9 +47,11 @@ abstract final class ModbusConvert {
   }) {
     final h = high & 0xFFFF;
     final l = low & 0xFFFF;
+    // Use multiplication instead of << 16 to avoid signed-32-bit truncation
+    // on the dart2js target when bit 15 of the high word is set.
     return order == ModbusWordOrder.highWordFirst
-        ? (h << 16) | l
-        : (l << 16) | h;
+        ? h * 0x10000 + l
+        : l * 0x10000 + h;
   }
 
   /// Combines a pair of consecutive registers at [index] and `index + 1` in
@@ -83,11 +85,11 @@ abstract final class ModbusConvert {
   /// as `670` with a [factor] of `100`. Pass the same factor the device uses.
   /// [factor] must be a positive number.
   static double scale(int raw, {required num factor}) {
-    if (factor <= 0) {
+    if (factor <= 0 || (factor is double && !factor.isFinite)) {
       throw ArgumentError.value(
         factor,
         'factor',
-        'must be a positive number (got $factor)',
+        'must be a finite positive number (got $factor)',
       );
     }
     return raw / factor;
@@ -144,6 +146,13 @@ abstract final class ModbusConvert {
       registers.add((hi << 8) | lo);
     }
     if (padToRegisters != null) {
+      if (padToRegisters < 0) {
+        throw ArgumentError.value(
+          padToRegisters,
+          'padToRegisters',
+          'must be non-negative (got $padToRegisters)',
+        );
+      }
       if (registers.length > padToRegisters) {
         throw ArgumentError.value(
           padToRegisters,

@@ -161,7 +161,7 @@ void main() {
 
     test('throws on a frame that is too short', () {
       expect(
-        () => ModbusDecoder.decode([0x01, 0x03]),
+        () => ModbusDecoder.decode([0x01, 0x03, 0x00, 0x00]),
         throwsA(isA<ModbusFrameException>()),
       );
     });
@@ -197,8 +197,16 @@ void main() {
     // --- bit response: byteCount = 0 -----------------------------------------
 
     test('throws ModbusFrameException when bit response byteCount is 0', () {
-      // byteCount=0 is a malformed response — no coil data.
       final frame = withCrc([0x01, 0x01, 0x00]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test('throws ModbusFrameException when register response byteCount is 0',
+        () {
+      final frame = withCrc([0x01, 0x03, 0x00]);
       expect(
         () => ModbusDecoder.decode(frame),
         throwsA(isA<ModbusFrameException>()),

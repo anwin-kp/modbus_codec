@@ -152,6 +152,7 @@ abstract final class ModbusEncoder {
             '(got ${values.length})',
       );
     }
+    _checkAddressRange(startAddress, values.length);
     final byteCount = (values.length + 7) ~/ 8;
     final packed = List<int>.filled(byteCount, 0);
     for (var i = 0; i < values.length; i++) {
@@ -195,6 +196,7 @@ abstract final class ModbusEncoder {
             '(got ${values.length})',
       );
     }
+    _checkAddressRange(startAddress, values.length);
     final data = <int>[];
     for (var i = 0; i < values.length; i++) {
       _checkU16(values[i], 'values', index: i);
@@ -228,6 +230,7 @@ abstract final class ModbusEncoder {
         'must be in range 1..$maxQuantity (got $quantity)',
       );
     }
+    _checkAddressRange(startAddress, quantity);
     return _frame([
       slaveId,
       functionCode,
@@ -258,6 +261,17 @@ abstract final class ModbusEncoder {
         address,
         'address',
         'must be in range 0x0000..0xFFFF (got $address)',
+      );
+    }
+  }
+
+  static void _checkAddressRange(int startAddress, int quantity) {
+    if (startAddress + quantity - 1 > 0xFFFF) {
+      throw ArgumentError.value(
+        startAddress,
+        'startAddress',
+        'startAddress ($startAddress) + quantity ($quantity) - 1 exceeds '
+            '0xFFFF; last address would be ${startAddress + quantity - 1}',
       );
     }
   }

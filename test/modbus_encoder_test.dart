@@ -254,5 +254,44 @@ void main() {
         ),
       );
     });
+
+    // --- address + quantity range validation ---------------------------------
+
+    test('rejects readHoldingRegisters when last address exceeds 0xFFFF', () {
+      // startAddress=0xFF00, quantity=125 → last address 0xFF00+124=0xFF7C (ok)
+      // startAddress=0xFF00, quantity=256 → blocked by quantity>125 guard first
+      // startAddress=0xFFFF, quantity=2 → last address 0x10000 overflows
+      expect(
+        () => ModbusEncoder.readCoils(
+            slaveId: 1, startAddress: 0xFFFF, quantity: 2),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts readCoils when last address is exactly 0xFFFF', () {
+      // startAddress=0xFF00, quantity=256 → last address 0xFF00+255=0xFFFF (ok)
+      expect(
+        () => ModbusEncoder.readCoils(
+            slaveId: 1, startAddress: 0xFF00, quantity: 256),
+        returnsNormally,
+      );
+    });
+
+    test('rejects writeMultipleRegisters when address range overflows 0xFFFF',
+        () {
+      expect(
+        () => ModbusEncoder.writeMultipleRegisters(
+            slaveId: 1, startAddress: 0xFFFE, values: [0, 1, 2]),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects writeMultipleCoils when address range overflows 0xFFFF', () {
+      expect(
+        () => ModbusEncoder.writeMultipleCoils(
+            slaveId: 1, startAddress: 0xFFFF, values: [true, false]),
+        throwsArgumentError,
+      );
+    });
   });
 }
