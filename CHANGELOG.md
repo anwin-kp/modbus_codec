@@ -1,4 +1,4 @@
-## 0.1.3
+## 0.1.4
 
 - Decoder rejects oversized read responses (`byteCount > 250`) instead of accepting out-of-spec data.
 - Decoder validates the address range on write-multiple echoes (`startAddress + quantity - 1 <= 0xFFFF`).
