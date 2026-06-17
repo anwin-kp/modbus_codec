@@ -59,8 +59,16 @@ abstract final class ModbusConvert {
     int index, {
     ModbusWordOrder order = ModbusWordOrder.highWordFirst,
   }) {
+    if (registers.length < 2) {
+      throw RangeError(
+        'registers must contain at least 2 elements to read a 32-bit pair '
+        '(got ${registers.length}).',
+      );
+    }
     if (index < 0 || index + 1 >= registers.length) {
-      throw RangeError.range(index, 0, registers.length - 2, 'index');
+      throw RangeError.range(index, 0, registers.length - 2, 'index',
+          'index requires registers[$index] and registers[${index + 1}], '
+          'but registers only has ${registers.length} elements');
     }
     return combine32(
       high: registers[index],

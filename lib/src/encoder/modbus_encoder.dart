@@ -82,6 +82,10 @@ abstract final class ModbusEncoder {
   /// Encodes FC 05 — Write Single Coil.
   ///
   /// [value] `true` turns the coil ON (`0xFF00`), `false` OFF (`0x0000`).
+  ///
+  /// **Broadcast note:** `slaveId` 0 is a valid broadcast address per the
+  /// Modbus spec, but devices must not send a response to broadcast writes.
+  /// Do not call `ModbusDecoder.decode` after a broadcast request.
   static List<int> writeSingleCoil({
     required int slaveId,
     required int address,
@@ -103,6 +107,10 @@ abstract final class ModbusEncoder {
   ///
   /// [value] is the raw 16-bit value to write (0–65535). Pre-scale any
   /// engineering value before calling — e.g. `pH 6.70 -> 670`.
+  ///
+  /// **Broadcast note:** `slaveId` 0 is a valid broadcast address per the
+  /// Modbus spec, but devices must not send a response to broadcast writes.
+  /// Do not call `ModbusDecoder.decode` after a broadcast request.
   static List<int> writeSingleRegister({
     required int slaveId,
     required int address,
@@ -122,6 +130,10 @@ abstract final class ModbusEncoder {
   /// Encodes FC 15 (0x0F) — Write Multiple Coils.
   ///
   /// [values] must contain 1–1968 entries.
+  ///
+  /// **Broadcast note:** `slaveId` 0 is a valid broadcast address per the
+  /// Modbus spec, but devices must not send a response to broadcast writes.
+  /// Do not call `ModbusDecoder.decode` after a broadcast request.
   static List<int> writeMultipleCoils({
     required int slaveId,
     required int startAddress,
@@ -161,6 +173,10 @@ abstract final class ModbusEncoder {
   ///
   /// Each entry of [values] is a raw 16-bit value (0–65535). [values] must
   /// contain 1–123 entries.
+  ///
+  /// **Broadcast note:** `slaveId` 0 is a valid broadcast address per the
+  /// Modbus spec, but devices must not send a response to broadcast writes.
+  /// Do not call `ModbusDecoder.decode` after a broadcast request.
   static List<int> writeMultipleRegisters({
     required int slaveId,
     required int startAddress,

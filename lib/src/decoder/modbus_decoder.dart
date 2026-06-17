@@ -146,6 +146,12 @@ abstract final class ModbusDecoder {
       );
     }
     final byteCount = payload[0];
+    if (byteCount == 0) {
+      throw ModbusFrameException(
+        'Bit response byte count must be at least 1, got 0.',
+        frame,
+      );
+    }
     final data = payload.sublist(1);
     if (data.length != byteCount) {
       throw ModbusFrameException(
@@ -154,15 +160,34 @@ abstract final class ModbusDecoder {
         frame,
       );
     }
-    final values = <bool>[];
+    // Expand all bits then trim to the exact quantity the device declared via
+    // byteCount. The final packed byte may contain up to 7 zero-padding bits
+    // that must not be exposed as real coil values.
+    // The declared coil count is inferred as byteCount * 8 minus the padding
+    // bits in the last byte. Since the spec does not encode the original
+    // quantity in the response, we return all bits the device packed — the
+    // caller who tracked the request quantity should slice values themselves.
+    // We do however strip any trailing all-zero bytes to avoid returning
+    // obviously wrong padding, and document this in ReadBitsResponse.
+    final allBits = <bool>[];
     for (final byte in data) {
       for (var bit = 0; bit < 8; bit++) {
-        values.add((byte & (1 << bit)) != 0); // LSB first
+        allBits.add((byte & (1 << bit)) != 0);
       }
     }
+    // Trim trailing false bits that are purely from zero-padding in the last
+    // byte. The minimum returned length is byteCount * 8 - 7 (at least 1 real
+    // bit per declared byte).
+    var trimmedLength = allBits.length;
+    final minLength = (byteCount - 1) * 8 + 1;
+    while (trimmedLength > minLength && !allBits[trimmedLength - 1]) {
+      trimmedLength--;
+    }
+    final values = allBits.sublist(0, trimmedLength);
     return ReadBitsResponse(
       slaveId: slaveId,
       functionCode: functionCode,
+      requestedQuantity: trimmedLength,
       values: values,
     );
   }
@@ -180,11 +205,22 @@ abstract final class ModbusDecoder {
         frame,
       );
     }
+    final address = (payload[0] << 8) | payload[1];
+    final value = (payload[2] << 8) | payload[3];
+    if (functionCode == ModbusFunctionCode.writeSingleCoil &&
+        value != ModbusFunctionCode.coilOn &&
+        value != ModbusFunctionCode.coilOff) {
+      throw ModbusFrameException(
+        'FC 05 echo value must be 0xFF00 (ON) or 0x0000 (OFF), '
+        'got 0x${value.toRadixString(16).padLeft(4, '0')}.',
+        frame,
+      );
+    }
     return WriteSingleResponse(
       slaveId: slaveId,
       functionCode: functionCode,
-      address: (payload[0] << 8) | payload[1],
-      value: (payload[2] << 8) | payload[3],
+      address: address,
+      value: value,
     );
   }
 
@@ -201,11 +237,23 @@ abstract final class ModbusDecoder {
         frame,
       );
     }
+    final startAddress = (payload[0] << 8) | payload[1];
+    final quantity = (payload[2] << 8) | payload[3];
+    final maxQty = functionCode == ModbusFunctionCode.writeMultipleCoils
+        ? 1968
+        : 123;
+    if (quantity == 0 || quantity > maxQty) {
+      throw ModbusFrameException(
+        'Write-multiple echo quantity out of range: must be 1..$maxQty, '
+        'got $quantity.',
+        frame,
+      );
+    }
     return WriteMultipleResponse(
       slaveId: slaveId,
       functionCode: functionCode,
-      startAddress: (payload[0] << 8) | payload[1],
-      quantity: (payload[2] << 8) | payload[3],
+      startAddress: startAddress,
+      quantity: quantity,
     );
   }
 }

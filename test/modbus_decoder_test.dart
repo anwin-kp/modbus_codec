@@ -27,12 +27,34 @@ void main() {
       expect(response.registers, equals([0xFFFF]));
     });
 
-    test('expands coils LSB-first into booleans', () {
-      // byte 0x05 = 0b00000101 -> coil0 true, coil1 false, coil2 true.
+    test('expands coils LSB-first into booleans and trims padding', () {
+      // byte 0x05 = 0b00000101 -> coil0 true, coil1 false, coil2 true,
+      // bits 3-7 are zero padding and should be trimmed.
       final frame = withCrc([0x01, 0x01, 0x01, 0x05]);
       final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
       expect(response.values.take(3), equals([true, false, true]));
+      // Trailing zero padding trimmed: length should be 3, not 8.
+      expect(response.values.length, equals(3));
+      expect(response.requestedQuantity, equals(3));
+    });
+
+    test('does not trim trailing true bits (real coil values)', () {
+      // byte 0xFF = all 8 coils ON — none are padding, length stays 8.
+      final frame = withCrc([0x01, 0x01, 0x01, 0xFF]);
+      final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
       expect(response.values.length, equals(8));
+      expect(response.values, everyElement(isTrue));
+    });
+
+    test('coil response with multiple bytes exposes all bits of non-final bytes',
+        () {
+      // 9 coils: 2 bytes. byte0 = 0xFF (coils 0-7 all ON), byte1 = 0x01 (coil 8 ON, rest padding).
+      final frame = withCrc([0x01, 0x01, 0x02, 0xFF, 0x01]);
+      final response = ModbusDecoder.decode(frame) as ReadBitsResponse;
+      // First 8 all true, 9th true, trailing zeros trimmed.
+      expect(response.values.length, equals(9));
+      expect(response.values.sublist(0, 8), everyElement(isTrue));
+      expect(response.values[8], isTrue);
     });
 
     test('decodes a write-single echo response', () {
@@ -132,7 +154,6 @@ void main() {
 
     test('throws ModbusFrameException (not IndexError) on empty register payload',
         () {
-      // Valid header but no payload bytes — would previously crash with IndexError.
       final frame = withCrc([0x01, 0x03]);
       expect(
         () => ModbusDecoder.decode(frame),
@@ -152,8 +173,81 @@ void main() {
     test(
         'throws ModbusFrameException (not IndexError) on truncated exception response',
         () {
-      // Exception frame missing the exception code byte — only 4 bytes with CRC.
       final frame = withCrc([0x01, 0x83]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    // --- bit response: byteCount = 0 -----------------------------------------
+
+    test('throws ModbusFrameException when bit response byteCount is 0', () {
+      // byteCount=0 is a malformed response — no coil data.
+      final frame = withCrc([0x01, 0x01, 0x00]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    // --- FC 05 coil echo validation ------------------------------------------
+
+    test('decodes FC 05 coil echo with value 0xFF00 (ON)', () {
+      final frame = withCrc([0x01, 0x05, 0x00, 0x05, 0xFF, 0x00]);
+      final response = ModbusDecoder.decode(frame) as WriteSingleResponse;
+      expect(response.coilState, isTrue);
+    });
+
+    test('decodes FC 05 coil echo with value 0x0000 (OFF)', () {
+      final frame = withCrc([0x01, 0x05, 0x00, 0x05, 0x00, 0x00]);
+      final response = ModbusDecoder.decode(frame) as WriteSingleResponse;
+      expect(response.coilState, isFalse);
+    });
+
+    test('throws ModbusFrameException for illegal FC 05 echo value', () {
+      // value 0x0100 is not a valid Modbus coil echo value.
+      final frame = withCrc([0x01, 0x05, 0x00, 0x05, 0x01, 0x00]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(
+          isA<ModbusFrameException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('0xFF00'), contains('0x0000')),
+          ),
+        ),
+      );
+    });
+
+    // --- WriteMultipleResponse quantity validation ---------------------------
+
+    test('throws ModbusFrameException when write-multiple echo quantity is 0',
+        () {
+      // FC 16 echo with quantity = 0.
+      final frame = withCrc([0x01, 0x10, 0x00, 0x00, 0x00, 0x00]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test(
+        'throws ModbusFrameException when write-multiple echo quantity exceeds spec limit',
+        () {
+      // FC 16 echo with quantity = 200 (> 123 max for registers).
+      final frame = withCrc([0x01, 0x10, 0x00, 0x00, 0x00, 0xC8]);
+      expect(
+        () => ModbusDecoder.decode(frame),
+        throwsA(isA<ModbusFrameException>()),
+      );
+    });
+
+    test(
+        'throws ModbusFrameException when FC 15 write-multiple echo coil quantity exceeds spec limit',
+        () {
+      // FC 15 echo with quantity = 2000 (> 1968 max for coils).
+      final frame = withCrc([0x01, 0x0F, 0x00, 0x00, 0x07, 0xD0]);
       expect(
         () => ModbusDecoder.decode(frame),
         throwsA(isA<ModbusFrameException>()),
@@ -172,6 +266,16 @@ void main() {
       final response = ModbusDecoder.decode(request) as WriteSingleResponse;
       expect(response.address, equals(40));
       expect(response.value, equals(567));
+    });
+
+    test('encoded coil write round-trips through decoder', () {
+      final request = ModbusEncoder.writeSingleCoil(
+        slaveId: 1,
+        address: 5,
+        value: true,
+      );
+      final response = ModbusDecoder.decode(request) as WriteSingleResponse;
+      expect(response.coilState, isTrue);
     });
   });
 }

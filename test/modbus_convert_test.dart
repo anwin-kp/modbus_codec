@@ -69,6 +69,26 @@ void main() {
       );
     });
 
+    test('combine32At throws a clear RangeError on empty list', () {
+      expect(
+        () => ModbusConvert.combine32At([], 0),
+        throwsA(
+          isA<RangeError>().having(
+            (e) => e.message,
+            'message',
+            contains('at least 2'),
+          ),
+        ),
+      );
+    });
+
+    test('combine32At throws a clear RangeError on single-element list', () {
+      expect(
+        () => ModbusConvert.combine32At([0x0001], 0),
+        throwsRangeError,
+      );
+    });
+
     test('combine32At throws when index is the last element (no room for pair)',
         () {
       final regs = [0x0001, 0x0002, 0x0003];

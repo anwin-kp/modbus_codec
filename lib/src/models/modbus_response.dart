@@ -43,21 +43,34 @@ final class ReadRegistersResponse extends ModbusResponse {
 
 /// Decoded reply to a read of 1-bit values (FC 01 coils, FC 02 discrete inputs).
 ///
-/// [values] is already expanded from the packed bytes, least-significant-bit
-/// first, so `values[0]` is the first coil/input requested.
+/// [values] contains exactly [requestedQuantity] booleans, LSB-first, trimmed
+/// to the count originally requested. `values[0]` is the first coil/input
+/// requested; there are no trailing padding bits.
 final class ReadBitsResponse extends ModbusResponse {
+  /// The number of coils / discrete inputs that were requested.
+  ///
+  /// Equals `values.length`. Carried here so callers can verify the response
+  /// matches their request without retaining the original quantity separately.
+  final int requestedQuantity;
+
   /// The expanded boolean values, in request order.
+  ///
+  /// Length is always [requestedQuantity] — padding bits from the final packed
+  /// byte are stripped.
   final List<bool> values;
 
   /// Creates a bit (coil / discrete input) read response.
   const ReadBitsResponse({
     required super.slaveId,
     required super.functionCode,
+    required this.requestedQuantity,
     required this.values,
   });
 
   @override
-  String toString() => 'ReadBitsResponse(slaveId: $slaveId, values: $values)';
+  String toString() =>
+      'ReadBitsResponse(slaveId: $slaveId, requestedQuantity: $requestedQuantity, '
+      'values: $values)';
 }
 
 /// Decoded echo reply to FC 05 (write single coil) or FC 06 (write single
