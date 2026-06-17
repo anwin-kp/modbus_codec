@@ -1,3 +1,10 @@
+## 0.1.2
+
+- Rewrote README and library doc for BLE/mobile audience — send/receive examples, plain-language tables, no protocol jargon.
+- Added address-range overflow check: encoder throws when `startAddress + quantity - 1 > 0xFFFF`.
+- `ModbusConvert.combine32` now uses multiplication instead of bit-shift for correct behaviour on dart2js.
+- Decoder enforces minimum write-response frame length (8 bytes) before decoding FC 05/06/15/16.
+
 ## 0.1.1
 
 - Input validation for `slaveId`, `address`, and quantity limits on all function codes.
