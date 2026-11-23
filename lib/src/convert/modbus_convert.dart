@@ -1,7 +1,12 @@
+import 'dart:typed_data';
+
 /// Byte/word order used when combining two 16-bit registers into a 32-bit value.
 ///
 /// Modbus itself only defines 16-bit registers; how a 32-bit value spans two
 /// registers is device-specific, so you must pick the order your device uses.
+///
+/// For devices that also swap the two bytes inside each register (BADC /
+/// DCBA), pass each register through [ModbusConvert.swapBytes16] first.
 enum ModbusWordOrder {
   /// Most-significant word first: `value = (reg[0] << 16) | reg[1]`.
   /// Also known as "big-endian" word order (ABCD).
@@ -32,6 +37,28 @@ abstract final class ModbusConvert {
   static int toSigned32(int value) {
     final v = value & 0xFFFFFFFF;
     return v >= 0x80000000 ? v - 0x100000000 : v;
+  }
+
+  /// Converts a signed 16-bit [value] (-32768..32767) to the raw unsigned
+  /// register value to write. Inverse of [toSigned16]: `-5` -> `65531`.
+  static int fromSigned16(int value) {
+    if (value < -0x8000 || value > 0x7FFF) {
+      throw ArgumentError.value(
+        value,
+        'value',
+        'must be in range -32768..32767 (got $value)',
+      );
+    }
+    return value & 0xFFFF;
+  }
+
+  /// Swaps the two bytes of a 16-bit register: `0x1234` -> `0x3412`.
+  ///
+  /// Use for devices that store multi-byte values with the bytes inside each
+  /// register swapped (BADC / DCBA order).
+  static int swapBytes16(int value) {
+    final v = value & 0xFFFF;
+    return ((v & 0xFF) << 8) | (v >> 8);
   }
 
   /// Combines two raw 16-bit registers, [high] and [low], into one unsigned
@@ -68,15 +95,80 @@ abstract final class ModbusConvert {
       );
     }
     if (index < 0 || index + 1 >= registers.length) {
-      throw RangeError.range(index, 0, registers.length - 2, 'index',
+      throw RangeError.range(
+          index,
+          0,
+          registers.length - 2,
+          'index',
           'index requires registers[$index] and registers[${index + 1}], '
-          'but registers only has ${registers.length} elements');
+              'but registers only has ${registers.length} elements');
     }
     return combine32(
       high: registers[index],
       low: registers[index + 1],
       order: order,
     );
+  }
+
+  /// Splits a 32-bit [value] into the two registers to write, in the given
+  /// [order]. Inverse of [combine32].
+  ///
+  /// Accepts unsigned (0..4294967295) or signed (-2147483648..2147483647)
+  /// values; negative values are written as two's complement.
+  static List<int> split32(
+    int value, {
+    ModbusWordOrder order = ModbusWordOrder.highWordFirst,
+  }) {
+    if (value < -0x80000000 || value > 0xFFFFFFFF) {
+      throw ArgumentError.value(
+        value,
+        'value',
+        'must fit in 32 bits: -2147483648..4294967295 (got $value)',
+      );
+    }
+    final v = value < 0 ? value + 0x100000000 : value;
+    // Arithmetic instead of >> 16 so the result is also correct on dart2js.
+    final h = v ~/ 0x10000;
+    final l = v % 0x10000;
+    return order == ModbusWordOrder.highWordFirst ? [h, l] : [l, h];
+  }
+
+  /// Interprets two registers as an IEEE-754 single-precision float
+  /// (`float32`), the most common way devices store real numbers.
+  ///
+  /// Arguments are as for [combine32]: pass the registers in the order they
+  /// appear in the response and choose [order] to match your device.
+  static double toFloat32({
+    required int high,
+    required int low,
+    ModbusWordOrder order = ModbusWordOrder.highWordFirst,
+  }) {
+    final bits = combine32(high: high, low: low, order: order);
+    return (ByteData(4)..setUint32(0, bits)).getFloat32(0);
+  }
+
+  /// Reads a `float32` from `registers[index]` and `registers[index + 1]`.
+  /// Convenience wrapper over [toFloat32].
+  static double float32At(
+    List<int> registers,
+    int index, {
+    ModbusWordOrder order = ModbusWordOrder.highWordFirst,
+  }) {
+    final bits = combine32At(registers, index, order: order);
+    return (ByteData(4)..setUint32(0, bits)).getFloat32(0);
+  }
+
+  /// Encodes [value] as an IEEE-754 `float32` in two registers, ready for
+  /// `ModbusEncoder.writeMultipleRegisters`. Inverse of [toFloat32].
+  ///
+  /// Values are rounded to single precision (e.g. `0.1` is stored as
+  /// `0.100000001490116...`).
+  static List<int> fromFloat32(
+    double value, {
+    ModbusWordOrder order = ModbusWordOrder.highWordFirst,
+  }) {
+    final bits = (ByteData(4)..setFloat32(0, value)).getUint32(0);
+    return split32(bits, order: order);
   }
 
   /// Applies a fixed-point scale: returns `raw / factor`.

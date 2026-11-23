@@ -10,11 +10,14 @@
 /// await bleCharacteristic.write(bytes);
 /// ```
 ///
-/// **Receive:**
+/// **Receive** (BLE notifications may split a response, so reassemble first):
 /// ```dart
-/// final response = ModbusDecoder.decode(receivedBytes);
-/// if (response is ReadRegistersResponse) {
-///   final temp = ModbusConvert.scale(response.registers[0], factor: 10);
+/// final assembler = ModbusFrameAssembler();
+/// for (final frame in assembler.add(notificationBytes)) {
+///   final response = ModbusDecoder.decode(frame);
+///   if (response is ReadRegistersResponse) {
+///     final temp = ModbusConvert.scale(response.registers[0], factor: 10);
+///   }
 /// }
 /// ```
 library;
@@ -23,6 +26,7 @@ export 'src/constants/function_codes.dart';
 export 'src/convert/modbus_convert.dart';
 export 'src/crc/crc16_modbus.dart';
 export 'src/decoder/modbus_decoder.dart';
+export 'src/decoder/modbus_frame_assembler.dart';
 export 'src/encoder/modbus_encoder.dart';
 export 'src/models/modbus_exception.dart';
 export 'src/models/modbus_response.dart';

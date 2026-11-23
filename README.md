@@ -1,6 +1,6 @@
 # modbus_codec
 
-Talk to Modbus devices over BLE (or serial / TCP) from Flutter/Dart.  
+Talk to Modbus RTU devices over BLE (or serial / RTU-over-TCP) from Flutter/Dart.  
 Build the bytes to send → get clean values back from the bytes you receive.  
 Zero dependencies, pure Dart.
 
@@ -8,7 +8,7 @@ Zero dependencies, pure Dart.
 
 ```yaml
 dependencies:
-  modbus_codec: ^0.1.4
+  modbus_codec: ^0.2.0
 ```
 
 ## The idea in one picture
@@ -45,9 +45,27 @@ characteristic.
 
 ## Read the response
 
+BLE notifications are small (often 20 bytes), so a bigger response arrives in
+several pieces. Feed every notification to a `ModbusFrameAssembler`; it hands
+you each response once all of its bytes are in:
+
 ```dart
-// `received` is the List<int> from your BLE notification callback.
-final response = ModbusDecoder.decode(received);
+final assembler = ModbusFrameAssembler();
+
+characteristic.onValueReceived.listen((chunk) {
+  for (final frame in assembler.add(chunk)) {
+    handle(ModbusDecoder.decode(frame));
+  }
+});
+
+// If a request times out, drop any half-received response:
+assembler.reset();
+```
+
+Then use the values:
+
+```dart
+void handle(ModbusResponse response) {
 
 if (response is ReadRegistersResponse) {
   final regs = response.registers; // plain list of numbers
@@ -56,7 +74,10 @@ if (response is ReadRegistersResponse) {
   final isRunning   = regs[1] == 1;
   final errorCode   = ModbusConvert.toSigned16(regs[2]);         // can be negative
 }
+}
 ```
+
+`received` in the examples below is one complete frame from the assembler.
 
 ---
 
@@ -133,8 +154,34 @@ final offset = ModbusConvert.toSigned16(regs[1]);         // → –5
 // 32-bit value spread across two consecutive registers.
 final totalFlow = ModbusConvert.combine32At(regs, 4);     // regs[4]<<16 | regs[5]
 
-// Device name stored as text.
-final name = ModbusConvert.asciiFromRegisters(regs.sublist(10, 18)); // → "Pump1"
+// Floating-point value (IEEE-754 float32) in two registers.
+final pressure = ModbusConvert.float32At(regs, 6);        // → 1.013
+
+// Device name stored as text (8 registers = up to 16 characters).
+final name = ModbusConvert.asciiFromRegisters(regs.sublist(8, 16)); // → "Pump1"
+```
+
+32-bit values have no standard layout. If you get nonsense, try
+`order: ModbusWordOrder.lowWordFirst`; if still wrong, the device also swaps
+bytes — pass each register through `ModbusConvert.swapBytes16` first.
+
+---
+
+## Write numbers that don't fit one register
+
+```dart
+// Negative value → raw register.
+ModbusEncoder.writeSingleRegister(
+  slaveId: 1, address: 20, value: ModbusConvert.fromSigned16(-5), // 65531
+);
+
+// Float or 32-bit integer → two registers.
+ModbusEncoder.writeMultipleRegisters(
+  slaveId: 1, startAddress: 30, values: ModbusConvert.fromFloat32(7.25),
+);
+ModbusEncoder.writeMultipleRegisters(
+  slaveId: 1, startAddress: 32, values: ModbusConvert.split32(100000),
+);
 ```
 
 ---
@@ -169,7 +216,7 @@ await bleCharacteristic.write(bytes);
 
 ### Decoder (read bytes received)
 
-Pass the raw `List<int>` from your BLE notification to `ModbusDecoder.decode`.
+Pass one complete frame (from `ModbusFrameAssembler`) to `ModbusDecoder.decode`.
 It returns one of:
 
 | Type | When you get it |
@@ -186,9 +233,31 @@ It returns one of:
 | `scale(value, factor: 10)` | Fixed-point → decimal (e.g. 245 → 24.5) |
 | `toSigned16(value)` | Unsigned int → signed (handles negative values) |
 | `combine32At(regs, index)` | Two registers → one 32-bit number |
+| `float32At(regs, index)` | Two registers → `double` (IEEE-754 float) |
+| `fromFloat32(value)` | `double` → two registers to write |
+| `split32(value)` | 32-bit integer → two registers to write |
+| `fromSigned16(value)` | Negative number → register value to write |
+| `swapBytes16(value)` | Swap the two bytes of a register (BADC/DCBA devices) |
 | `asciiFromRegisters(regs)` | Registers → text string |
 | `asciiToRegisters(text)` | Text string → registers |
 | `bit(value, position)` | Read a single bit flag (position 0–31) from a register |
+
+### Reassembly
+
+| Helper | Use case |
+|---|---|
+| `ModbusFrameAssembler` | Join BLE notification chunks into complete frames |
+| `ModbusDecoder.expectedLength(bytes)` | Total frame length from the first 2–3 bytes |
+
+---
+
+## Scope
+
+This package encodes and decodes **Modbus RTU** frames (with CRC). It works over
+any transport that carries RTU bytes: BLE, serial, or RTU-over-TCP gateways.
+Native Modbus TCP (MBAP header, no CRC) is not supported. Read requests must
+target a single device (`slaveId` 1–247); broadcast (`slaveId` 0) is for
+writes only, and devices don't reply to it.
 
 ---
 

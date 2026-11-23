@@ -13,9 +13,14 @@ import '../models/modbus_response.dart';
 abstract final class ModbusDecoder {
   /// Decodes a complete RTU response [frame].
   ///
-  /// By default the trailing CRC is validated; pass [validateCrc] `false` for
-  /// transports that already guarantee integrity (e.g. Modbus TCP wrapped
-  /// payloads) or during testing.
+  /// [frame] must be one complete RTU frame, including the 2 trailing CRC
+  /// bytes. Over BLE a response is often split across several notifications;
+  /// join them first with [ModbusFrameAssembler] (or [expectedLength]).
+  ///
+  /// By default the trailing CRC is validated; pass [validateCrc] `false` to
+  /// skip the check (e.g. RTU-over-TCP gateways that already guarantee
+  /// integrity, or during testing). The 2 CRC bytes must still be present.
+  /// Native Modbus TCP frames (MBAP header, no CRC) are not supported.
   ///
   /// Throws:
   ///  * [ModbusDeviceException] if the device returned an exception response.
@@ -27,6 +32,8 @@ abstract final class ModbusDecoder {
         frame,
       );
     }
+
+    _checkBytes(frame);
 
     if (validateCrc && !Crc16Modbus.isValid(frame)) {
       final expected = Crc16Modbus.bytes(frame.sublist(0, frame.length - 2));
@@ -47,6 +54,18 @@ abstract final class ModbusDecoder {
 
     // Exception response: function code has the high (0x80) bit set.
     if ((functionCode & ModbusFunctionCode.errorMask) != 0) {
+      if (frame.length != 5) {
+        throw ModbusFrameException(
+          'Exception response must be exactly 5 bytes, got ${frame.length}.',
+          frame,
+        );
+      }
+      if (functionCode == ModbusFunctionCode.errorMask) {
+        throw ModbusFrameException(
+          'Invalid exception response function code 0x80 (function 0).',
+          frame,
+        );
+      }
       throw ModbusDeviceException(
         slaveId: slaveId,
         functionCode: functionCode & ~ModbusFunctionCode.errorMask,
@@ -57,12 +76,8 @@ abstract final class ModbusDecoder {
     // Payload sits between the 2-byte header and the 2-byte trailing CRC.
     final payload = frame.sublist(2, frame.length - 2);
 
-    // Minimum frame sizes per function (header 2 + payload + CRC 2):
-    // Read responses: 2 + 1 (byteCount) + ≥2 data + 2 = ≥7 bytes minimum.
-    // Write-single/multiple echo: 2 + 4 payload + 2 = 8 bytes exactly.
-    const writeSingleMin = 8;
-    const writeMultipleMin = 8;
-
+    // Write echoes are always 8 bytes (header 2 + payload 4 + CRC 2); the
+    // per-function decoders enforce this via the 4-byte payload check.
     switch (functionCode) {
       case ModbusFunctionCode.readHoldingRegisters:
       case ModbusFunctionCode.readInputRegisters:
@@ -74,24 +89,10 @@ abstract final class ModbusDecoder {
 
       case ModbusFunctionCode.writeSingleCoil:
       case ModbusFunctionCode.writeSingleRegister:
-        if (frame.length < writeSingleMin) {
-          throw ModbusFrameException(
-            'Write-single response too short: expected at least '
-            '$writeSingleMin bytes, got ${frame.length}.',
-            frame,
-          );
-        }
         return _decodeWriteSingle(slaveId, functionCode, payload, frame);
 
       case ModbusFunctionCode.writeMultipleCoils:
       case ModbusFunctionCode.writeMultipleRegisters:
-        if (frame.length < writeMultipleMin) {
-          throw ModbusFrameException(
-            'Write-multiple response too short: expected at least '
-            '$writeMultipleMin bytes, got ${frame.length}.',
-            frame,
-          );
-        }
         return _decodeWriteMultiple(slaveId, functionCode, payload, frame);
 
       default:
@@ -99,6 +100,59 @@ abstract final class ModbusDecoder {
           'Unsupported function code: 0x${functionCode.toRadixString(16)}.',
           frame,
         );
+    }
+  }
+
+  /// Returns the total length in bytes (CRC included) of the response frame
+  /// that starts with [partial], or `null` if more bytes are needed to tell.
+  ///
+  /// Use this to reassemble a response that arrives in pieces, e.g. split
+  /// across BLE notifications: keep appending bytes until
+  /// `buffer.length >= expectedLength(buffer)!`. [ModbusFrameAssembler] does
+  /// this for you.
+  ///
+  /// Needs 2 bytes for exception and write responses, 3 for read responses.
+  ///
+  /// Throws [ModbusFrameException] if the function code is not supported, so
+  /// the length can never be known.
+  static int? expectedLength(List<int> partial) {
+    if (partial.length < 2) return null;
+    _checkBytes(partial.sublist(0, partial.length < 3 ? partial.length : 3));
+    final functionCode = partial[1];
+    if ((functionCode & ModbusFunctionCode.errorMask) != 0) return 5;
+    switch (functionCode) {
+      case ModbusFunctionCode.readCoils:
+      case ModbusFunctionCode.readDiscreteInputs:
+      case ModbusFunctionCode.readHoldingRegisters:
+      case ModbusFunctionCode.readInputRegisters:
+        if (partial.length < 3) return null;
+        return 5 + partial[2]; // slave + fc + byteCount + data + CRC(2)
+      case ModbusFunctionCode.writeSingleCoil:
+      case ModbusFunctionCode.writeSingleRegister:
+      case ModbusFunctionCode.writeMultipleCoils:
+      case ModbusFunctionCode.writeMultipleRegisters:
+        return 8;
+      default:
+        throw ModbusFrameException(
+          'Unsupported function code: 0x${functionCode.toRadixString(16)}; '
+          'cannot determine frame length.',
+          partial,
+        );
+    }
+  }
+
+  /// Every element of a byte frame must be an unsigned byte. Without this,
+  /// out-of-range values pass the CRC check (which masks to 8 bits) and
+  /// produce impossible register values.
+  static void _checkBytes(List<int> frame) {
+    for (var i = 0; i < frame.length; i++) {
+      final b = frame[i];
+      if (b < 0 || b > 0xFF) {
+        throw ModbusFrameException(
+          'Frame byte at index $i is $b; every byte must be in range 0..255.',
+          frame,
+        );
+      }
     }
   }
 
@@ -258,9 +312,8 @@ abstract final class ModbusDecoder {
     }
     final startAddress = (payload[0] << 8) | payload[1];
     final quantity = (payload[2] << 8) | payload[3];
-    final maxQty = functionCode == ModbusFunctionCode.writeMultipleCoils
-        ? 1968
-        : 123;
+    final maxQty =
+        functionCode == ModbusFunctionCode.writeMultipleCoils ? 1968 : 123;
     if (quantity == 0 || quantity > maxQty) {
       throw ModbusFrameException(
         'Write-multiple echo quantity out of range: must be 1..$maxQty, '

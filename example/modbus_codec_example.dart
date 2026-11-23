@@ -43,7 +43,15 @@ void main() {
   ];
   final bytesFromDevice = [...pdu, ...Crc16Modbus.bytes(pdu)];
 
-  final response = ModbusDecoder.decode(bytesFromDevice);
+  // Over BLE the reply may arrive in pieces (e.g. 20-byte notifications).
+  // The assembler joins them and yields each complete frame.
+  final assembler = ModbusFrameAssembler();
+  final frames = [
+    ...assembler.add(bytesFromDevice.sublist(0, 6)), // first notification
+    ...assembler.add(bytesFromDevice.sublist(6)), // second notification
+  ];
+
+  final response = ModbusDecoder.decode(frames.single);
 
   if (response is ReadRegistersResponse) {
     final regs = response.registers;
@@ -57,6 +65,14 @@ void main() {
     print('ORP       = $orp');
     print('timestamp = $timestamp');
   }
+
+  // Write a float setpoint (IEEE-754, two registers) to register 50.
+  final floatWrite = ModbusEncoder.writeMultipleRegisters(
+    slaveId: slaveId,
+    startAddress: 50,
+    values: ModbusConvert.fromFloat32(7.25),
+  );
+  print('Float write bytes: ${_hex(floatWrite)}');
 
   // --- Error handling -------------------------------------------------------
 

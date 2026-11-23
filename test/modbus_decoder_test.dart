@@ -166,7 +166,8 @@ void main() {
       );
     });
 
-    test('throws ModbusFrameException (not IndexError) on empty register payload',
+    test(
+        'throws ModbusFrameException (not IndexError) on empty register payload',
         () {
       final frame = withCrc([0x01, 0x03]);
       expect(
@@ -214,7 +215,8 @@ void main() {
       );
     });
 
-    test('accepts register byteCount = 250 (spec boundary — 125 registers)', () {
+    test('accepts register byteCount = 250 (spec boundary — 125 registers)',
+        () {
       final frame = withCrc([0x01, 0x03, 0xFA, ...List.filled(250, 0x00)]);
       expect(
         () => ModbusDecoder.decode(frame),
@@ -350,6 +352,70 @@ void main() {
       );
       final response = ModbusDecoder.decode(request) as WriteSingleResponse;
       expect(response.coilState, isTrue);
+    });
+  });
+
+  group('ModbusDecoder byte validation', () {
+    test('rejects a byte above 255 even though the CRC matches', () {
+      // The CRC masks each value to 8 bits, so 0x101 would otherwise pass.
+      final frame = withCrc([0x01, 0x03, 0x02, 0x101, 0x02]);
+      expect(() => ModbusDecoder.decode(frame),
+          throwsA(isA<ModbusFrameException>()));
+    });
+
+    test('rejects a negative byte', () {
+      final frame = withCrc([0x01, 0x03, 0x02, -1, 0x00]);
+      expect(() => ModbusDecoder.decode(frame),
+          throwsA(isA<ModbusFrameException>()));
+    });
+  });
+
+  group('ModbusDecoder exception responses', () {
+    test('rejects an exception response with trailing bytes', () {
+      final frame = withCrc([0x01, 0x83, 0x02, 0x09, 0x09]);
+      expect(() => ModbusDecoder.decode(frame),
+          throwsA(isA<ModbusFrameException>()));
+    });
+
+    test('rejects exception function code 0x80 (function 0)', () {
+      final frame = withCrc([0x01, 0x80, 0x02]);
+      expect(() => ModbusDecoder.decode(frame),
+          throwsA(isA<ModbusFrameException>()));
+    });
+  });
+
+  group('ModbusDecoder.expectedLength', () {
+    test('returns null until the length is known', () {
+      expect(ModbusDecoder.expectedLength([]), isNull);
+      expect(ModbusDecoder.expectedLength([0x01]), isNull);
+      expect(ModbusDecoder.expectedLength([0x01, 0x03]), isNull);
+    });
+
+    test('read responses: 5 + byteCount', () {
+      expect(ModbusDecoder.expectedLength([0x01, 0x03, 0x14]), equals(25));
+      expect(ModbusDecoder.expectedLength([0x01, 0x04, 0x02]), equals(7));
+      expect(ModbusDecoder.expectedLength([0x01, 0x01, 0x01]), equals(6));
+      expect(ModbusDecoder.expectedLength([0x01, 0x02, 0x01]), equals(6));
+    });
+
+    test('write echoes are 8 bytes', () {
+      for (final fc in [0x05, 0x06, 0x0F, 0x10]) {
+        expect(ModbusDecoder.expectedLength([0x01, fc]), equals(8));
+      }
+    });
+
+    test('exception responses are 5 bytes', () {
+      expect(ModbusDecoder.expectedLength([0x01, 0x83]), equals(5));
+    });
+
+    test('matches the length of real encoded frames', () {
+      final frame = withCrc([0x01, 0x03, 0x04, 0x00, 0x01, 0x00, 0x02]);
+      expect(ModbusDecoder.expectedLength(frame), equals(frame.length));
+    });
+
+    test('throws on an unsupported function code', () {
+      expect(() => ModbusDecoder.expectedLength([0x01, 0x2B]),
+          throwsA(isA<ModbusFrameException>()));
     });
   });
 }

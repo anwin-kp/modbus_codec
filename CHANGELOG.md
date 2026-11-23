@@ -1,3 +1,42 @@
+## 0.2.0
+
+**Breaking changes** — read before upgrading:
+
+- Read requests (FC 01–04) now reject `slaveId: 0`. Broadcast is only defined
+  for writes; a broadcast read never gets a reply.
+- `ModbusDecoder.decode` rejects frames containing values outside `0..255`.
+  Previously these passed the CRC check (which masks to 8 bits) and produced
+  impossible register values.
+- Exception responses must be exactly 5 bytes, and function code `0x80` is
+  rejected as malformed instead of reported as a device error for "FC 0".
+
+Earlier patch releases also contained breaking changes that should have been a
+minor bump. If you are upgrading from 0.1.0–0.1.3, note:
+
+- 0.1.1: `ReadBitsResponse.values` has `byteCount * 8` entries (not the
+  requested quantity) — slice to your request quantity.
+- 0.1.4: `ReadBitsResponse` no longer takes a `packedBitCount` constructor
+  argument (it is a getter); `ModbusConvert.bit` throws for positions > 31.
+
+New:
+
+- `ModbusFrameAssembler` — reassembles responses split across BLE
+  notifications (or partial serial reads) into complete frames.
+- `ModbusDecoder.expectedLength` — total frame length from the first 2–3 bytes.
+- `ModbusConvert.toFloat32`, `float32At`, `fromFloat32` — IEEE-754 float
+  registers.
+- `ModbusConvert.split32` — split a 32-bit value into two registers for writing.
+- `ModbusConvert.fromSigned16` — signed value to raw register (`-5` → `65531`).
+- `ModbusConvert.swapBytes16` — for devices using BADC / DCBA byte order.
+
+Fixes and housekeeping:
+
+- Documentation no longer claims native Modbus TCP support: frames must be RTU
+  (with CRC bytes); RTU-over-TCP works, MBAP-framed Modbus TCP does not.
+- Test suite now compiles and passes on the web (dart2js); CI runs it on every
+  push.
+- Removed unreachable length checks in the decoder.
+
 ## 0.1.4
 
 - Decoder rejects oversized read responses (`byteCount > 250`) instead of accepting out-of-spec data.
@@ -7,6 +46,10 @@
 - Added Modbus exception code `0x07` (negative acknowledge) to `ModbusExceptionCode`.
 - `ModbusFrameException.toString()` now includes the raw frame bytes for easier debugging.
 - `ReadBitsResponse.packedBitCount` is now a derived getter (always equals `values.length`).
+
+## 0.1.3
+
+- Fix README install snippet to reference `^0.1.2` (was pinned to old version).
 
 ## 0.1.2
 

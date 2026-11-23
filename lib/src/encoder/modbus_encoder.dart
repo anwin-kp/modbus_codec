@@ -17,7 +17,8 @@ import '../crc/crc16_modbus.dart';
 abstract final class ModbusEncoder {
   /// Encodes FC 01 — Read Coils.
   ///
-  /// Reads [quantity] coils (1–2000) starting at [startAddress] from [slaveId].
+  /// Reads [quantity] coils (1–2000) starting at [startAddress] from [slaveId]
+  /// (1–247; broadcast is not allowed for reads).
   static List<int> readCoils({
     required int slaveId,
     required int startAddress,
@@ -221,7 +222,7 @@ abstract final class ModbusEncoder {
     required int quantity,
     required int maxQuantity,
   }) {
-    _checkSlaveId(slaveId);
+    _checkUnicastSlaveId(slaveId);
     _checkAddress(startAddress);
     if (quantity <= 0 || quantity > maxQuantity) {
       throw ArgumentError.value(
@@ -251,6 +252,19 @@ abstract final class ModbusEncoder {
         slaveId,
         'slaveId',
         'must be in range 0..247 (got $slaveId)',
+      );
+    }
+  }
+
+  /// Reads must target a single device: broadcast (`slaveId` 0) is only
+  /// defined for writes, and a broadcast read would never get a reply.
+  static void _checkUnicastSlaveId(int slaveId) {
+    if (slaveId < 1 || slaveId > 247) {
+      throw ArgumentError.value(
+        slaveId,
+        'slaveId',
+        'must be in range 1..247 for read requests (got $slaveId); '
+            'broadcast (0) is only valid for writes',
       );
     }
   }
